@@ -5,6 +5,8 @@ app.py — InterviewAce Streamlit 入口
 暂不接入 storage.py，后续迭代再加。
 """
 
+import re
+
 import streamlit as st
 
 from core.parser import InterviewSession, parse_file
@@ -70,24 +72,38 @@ if "viewing_session_id" in st.session_state:
 
 uploaded = st.file_uploader("上传讯飞听见导出的转写文件（.txt）", type=["txt"])
 
-if uploaded is not None:
-    file_key = f"{uploaded.name}_{uploaded.size}"
-    if st.session_state.get("last_file_key") != file_key:
-        st.session_state.last_file_key = file_key
-        st.session_state.role_map = {"说话人1": "candidate", "说话人2": "interviewer"}
-
 if not uploaded:
     st.info("请上传转写文件以开始分析。")
     st.stop()
-
-if "role_map" not in st.session_state:
-    st.session_state.role_map = {"说话人1": "candidate", "说话人2": "interviewer"}
 
 # 解析文件
 try:
     import tempfile, os
     uploaded_bytes = uploaded.getvalue()
     uploaded_text = uploaded_bytes.decode("utf-8")
+    speaker_labels = sorted(
+        set(re.findall(r"^(说话人\d+)\s+\d{1,2}:\d{2}(?::\d{2})?", uploaded_text, re.M)),
+        key=lambda label: int(re.search(r"\d+", label).group()),
+    )
+    if not speaker_labels:
+        speaker_labels = ["说话人1", "说话人2"]
+
+    file_key = f"{uploaded.name}_{uploaded.size}"
+    if st.session_state.get("last_file_key") != file_key:
+        st.session_state.last_file_key = file_key
+        st.session_state.role_map = {
+            label: "candidate" if label == speaker_labels[0] else "interviewer"
+            for label in speaker_labels
+        }
+        if "candidate_speaker_select" in st.session_state:
+            del st.session_state["candidate_speaker_select"]
+
+    if "role_map" not in st.session_state:
+        st.session_state.role_map = {
+            label: "candidate" if label == speaker_labels[0] else "interviewer"
+            for label in speaker_labels
+        }
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp.write(uploaded_bytes)
         tmp_path = tmp.name
@@ -119,21 +135,24 @@ preview_title = f"对话轮次预览 · 共 {len(session.turns)} 个发言块 ·
 with st.expander(preview_title, expanded=False):
     role_label = {"candidate": "👤 候选人", "interviewer": "🎙️ 面试官"}
     st.markdown("**说话人角色确认**")
-    st.caption("如果面试官和候选人角色识别有误，可在此切换。")
+    st.caption("请选择候选人；其余说话人将自动识别为面试官。")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.caption(
-            f"说话人1 当前角色：{'👤 候选人' if st.session_state.role_map.get('说话人1') == 'candidate' else '🎙️ 面试官'}"
-        )
-    with col2:
-        if st.button("🔄 互换说话人角色"):
-            current = st.session_state.role_map
-            if current.get("说话人1") == "candidate":
-                st.session_state.role_map = {"说话人1": "interviewer", "说话人2": "candidate"}
-            else:
-                st.session_state.role_map = {"说话人1": "candidate", "说话人2": "interviewer"}
-            st.rerun()
+    current_candidate = next(
+        (label for label in speaker_labels if st.session_state.role_map.get(label) == "candidate"),
+        speaker_labels[0],
+    )
+    selected_candidate = st.selectbox(
+        "候选人说话人",
+        speaker_labels,
+        index=speaker_labels.index(current_candidate),
+        key="candidate_speaker_select",
+    )
+    if selected_candidate != current_candidate:
+        st.session_state.role_map = {
+            label: "candidate" if label == selected_candidate else "interviewer"
+            for label in speaker_labels
+        }
+        st.rerun()
 
     for i, turn in enumerate(session.turns):
         preview = turn.content[:30].replace("\n", " ")
