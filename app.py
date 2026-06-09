@@ -183,12 +183,19 @@ step_labels = {
     "parse_interview": "解析转写文件…",
     "group_topics": "识别话题分组…",
     "analyze_topics": "逐话题分析…",
+    "analyze_full_interview": "全量上下文分析…",
     "generate_summary": "生成整体总结…",
     "score_performance": "生成能力评分…",
     "save_results": "保存复盘记录…",
 }
 progress_bar = st.progress(0.0)
-step_keys = list(step_labels.keys())
+step_keys = [
+    "parse_interview",
+    "analyze_full_interview",
+    "generate_summary",
+    "score_performance",
+    "save_results",
+]
 step_container = st.empty()
 
 completed_steps: list[str] = []

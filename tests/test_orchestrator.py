@@ -12,6 +12,8 @@ from unittest.mock import patch
 from agent.orchestrator import InterviewOrchestrator
 from agent.schemas import AgentContext, Intent, ToolResult
 from agent.tools import (
+    build_full_interview_text,
+    tool_analyze_full_interview,
     tool_analyze_topics,
     tool_group_topics,
     tool_parse_interview,
@@ -172,6 +174,60 @@ def test_tool_analyze_topics_empty_groups() -> None:
     assert result.data["feedbacks"] == []
 
 
+def test_build_full_interview_text() -> None:
+    pairs = [
+        {"index": 1, "question": "Q1", "answer": "A1"},
+        {"index": 2, "question": "Q2", "answer": "A2"},
+    ]
+
+    result = build_full_interview_text(pairs)
+
+    assert "[第 1 轮]" in result
+    assert "面试官：Q1" in result
+    assert "候选人：A1" in result
+    assert "[第 2 轮]" in result
+    assert "面试官：Q2" in result
+    assert "候选人：A2" in result
+
+
+def test_tool_analyze_full_interview_calls_analyzer() -> None:
+    pairs = [{"index": 1, "question": "Q1", "answer": "A1"}]
+    ctx = AgentContext(
+        intent=Intent.ANALYZE_INTERVIEW,
+        user_input={},
+        job_direction="AI应用开发",
+        tool_results={
+            "parse_interview": ToolResult(success=True, data={"pairs": pairs})
+        },
+    )
+
+    with patch("agent.tools.analyze_full_interview", return_value="完整复盘报告") as mock_analyze:
+        result = tool_analyze_full_interview(ctx)
+
+    assert result.success is True
+    mock_analyze.assert_called_once()
+    assert result.data["analyses"][0]["topic"] == "完整面试复盘"
+    assert result.data["analyses"][0]["question"] == "基于完整面试转写进行整体分析"
+    assert "面试官：Q1" in result.data["analyses"][0]["answer"]
+    assert result.data["analyses"][0]["feedback"] == "完整复盘报告"
+
+
+def test_tool_analyze_full_interview_empty_text() -> None:
+    ctx = AgentContext(
+        intent=Intent.ANALYZE_INTERVIEW,
+        user_input={},
+        job_direction="AI应用开发",
+        tool_results={
+            "parse_interview": ToolResult(success=True, data={"pairs": []})
+        },
+    )
+
+    result = tool_analyze_full_interview(ctx)
+
+    assert result.success is False
+    assert "上下文为空" in result.error
+
+
 # ── 5. agent/orchestrator.py — run_analyze_interview ────────────────────────
 
 def test_run_analyze_interview_parse_failure() -> None:
@@ -181,7 +237,7 @@ def test_run_analyze_interview_parse_failure() -> None:
         "agent.orchestrator.tool_parse_interview",
         return_value=ToolResult(success=False, data=None, error="parse failed"),
     ):
-        result = orchestrator.run_analyze_interview("bad text", "AI应用开发")
+        result = orchestrator.run_analyze_interview("bad text", "AI应用开发", analysis_mode="topic")
 
     assert result.success is False
     assert "文件解析失败" in result.error
@@ -194,7 +250,7 @@ def test_run_analyze_interview_empty_pairs() -> None:
         "agent.orchestrator.tool_parse_interview",
         return_value=ToolResult(success=True, data={"pairs": []}),
     ):
-        result = orchestrator.run_analyze_interview("text", "AI应用开发")
+        result = orchestrator.run_analyze_interview("text", "AI应用开发", analysis_mode="full_context")
 
     assert result.success is False
     assert "有效问答" in result.error
@@ -213,7 +269,7 @@ def test_run_analyze_interview_group_fallback() -> None:
         patch("agent.orchestrator.tool_score_performance", return_value=ToolResult(success=True, data={"scores": None})),
         patch("agent.orchestrator.tool_save_results", return_value=ToolResult(success=True, data={"session_id": 1, "questions_saved": 0})),
     ):
-        result = orchestrator.run_analyze_interview("text", "AI应用开发")
+        result = orchestrator.run_analyze_interview("text", "AI应用开发", analysis_mode="topic")
 
     assert result.success is True
     mock_analyze.assert_called_once()
@@ -240,7 +296,7 @@ def test_run_analyze_interview_success() -> None:
         patch("agent.orchestrator.tool_score_performance", return_value=ToolResult(success=True, data={"scores": scores})),
         patch("agent.orchestrator.tool_save_results", side_effect=fake_save_results),
     ):
-        result = orchestrator.run_analyze_interview("text", "AI应用开发", title="测试面试")
+        result = orchestrator.run_analyze_interview("text", "AI应用开发", title="测试面试", analysis_mode="topic")
 
     assert result.success is True
     assert result.data["session_id"] == 42
@@ -250,3 +306,51 @@ def test_run_analyze_interview_success() -> None:
     assert result.data["questions_saved"] == 1
     assert result.data["title"] == "测试面试"
     assert result.data["groups_count"] == 1
+
+
+def test_run_analyze_interview_full_context_skips_group_topics() -> None:
+    orchestrator = InterviewOrchestrator()
+    pairs = [{"index": 1, "question": "Q1", "answer": "A1"}]
+    analyses = [
+        {
+            "index": 1,
+            "topic": "完整面试复盘",
+            "question": "基于完整面试转写进行整体分析",
+            "answer": "[第 1 轮]\n面试官：Q1\n候选人：A1",
+            "feedback": "完整复盘报告",
+        }
+    ]
+    scores = {"logical_clarity": {"score": 8, "reason": "清晰"}}
+
+    def fake_save_results(*args, **kwargs):
+        kwargs["session_id_holder"].append(43)
+        assert kwargs["feedbacks"] == analyses
+        return ToolResult(success=True, data={"session_id": 43, "questions_saved": 0})
+
+    with (
+        patch("agent.orchestrator.tool_parse_interview", return_value=ToolResult(success=True, data={"pairs": pairs})),
+        patch("agent.orchestrator.tool_group_topics") as mock_group,
+        patch("agent.orchestrator.tool_analyze_full_interview", return_value=ToolResult(success=True, data={"analyses": analyses})) as mock_full,
+        patch("agent.orchestrator.tool_generate_summary", return_value=ToolResult(success=True, data={"summary": "总结"})),
+        patch("agent.orchestrator.tool_score_performance", return_value=ToolResult(success=True, data={"scores": scores})),
+        patch("agent.orchestrator.tool_save_results", side_effect=fake_save_results),
+    ):
+        result = orchestrator.run_analyze_interview("text", "AI应用开发", title="测试面试")
+
+    assert result.success is True
+    mock_group.assert_not_called()
+    mock_full.assert_called_once()
+    assert result.data["session_id"] == 43
+    assert result.data["feedbacks"] == analyses
+    assert result.data["summary"] == "总结"
+    assert result.data["scores"] == scores
+    assert result.data["groups_count"] == 1
+
+
+def test_run_analyze_interview_invalid_analysis_mode() -> None:
+    orchestrator = InterviewOrchestrator()
+
+    result = orchestrator.run_analyze_interview("text", "AI应用开发", analysis_mode="unknown")
+
+    assert result.success is False
+    assert "不支持的分析模式" in result.error

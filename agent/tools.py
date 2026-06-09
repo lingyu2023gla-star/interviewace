@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from agent.schemas import ToolResult
+from agent.schemas import AgentContext, ToolResult
 from core.parser import parse_text
 from core.analyzer import (
     group_turns,
     analyze_turn,
+    analyze_full_interview,
     analyze_summary,
     score_session,
     extract_questions,
@@ -164,6 +165,55 @@ def tool_analyze_topics(groups: list[dict], pairs: list[dict], job_direction: st
         # 按原始顺序排列
         feedbacks = [results[i] for i in range(len(groups))]
         return ToolResult(success=True, data={"feedbacks": feedbacks})
+    except Exception as e:
+        return ToolResult(success=False, data=None, error=str(e))
+
+
+def build_full_interview_text(pairs: list[dict]) -> str:
+    """将解析出的问答 pairs 整理为适合全量上下文分析的文本。"""
+    blocks: list[str] = []
+    for item in pairs:
+        index = item.get("index", len(blocks) + 1)
+        question = str(item.get("question", "")).strip()
+        answer = str(item.get("answer", "")).strip()
+        if not question and not answer:
+            continue
+        blocks.append(
+            f"[第 {index} 轮]\n"
+            f"面试官：{question}\n"
+            f"候选人：{answer}"
+        )
+    return "\n\n".join(blocks).strip()
+
+
+def tool_analyze_full_interview(context: AgentContext) -> ToolResult:
+    """基于完整面试上下文生成单条全局复盘分析。"""
+    try:
+        pairs = context.tool_results["parse_interview"].data["pairs"]
+        full_text = build_full_interview_text(pairs)
+        if not full_text:
+            return ToolResult(success=False, data=None, error="完整面试上下文为空")
+
+        full_analysis_report = analyze_full_interview(
+            full_text=full_text,
+            job_direction=context.job_direction,
+        )
+        analyses = [
+            {
+                "index": 1,
+                "topic": "完整面试复盘",
+                "question": "基于完整面试转写进行整体分析",
+                "answer": full_text,
+                "feedback": full_analysis_report,
+            }
+        ]
+        return ToolResult(
+            success=True,
+            data={
+                "analyses": analyses,
+                "full_text": full_text,
+            },
+        )
     except Exception as e:
         return ToolResult(success=False, data=None, error=str(e))
 

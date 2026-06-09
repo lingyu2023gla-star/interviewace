@@ -20,6 +20,7 @@ from prompts.interview_analysis import (
     build_scoring_prompt,
     build_mock_feedback_prompt,
     build_practice_plan_prompt,
+    build_full_context_analysis_prompt,
 )
 
 load_dotenv()
@@ -145,6 +146,35 @@ def analyze_turn(question: str, answer: str, job_direction: str) -> dict:
         return data
     except Exception:
         return _fallback_turn_analysis()
+
+
+def analyze_full_interview(full_text: str, job_direction: str = "") -> str:
+    """基于完整面试上下文调用 DeepSeek 生成全量复盘报告。
+
+    Args:
+        full_text: 已格式化的完整面试问答文本。
+        job_direction: 应聘岗位方向。
+
+    Returns:
+        AI 生成的 Markdown 复盘报告；调用失败时返回友好错误提示。
+    """
+    prompt = build_full_context_analysis_prompt(full_text, job_direction)
+    try:
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=_API_TIMEOUT,
+        )
+        return response.choices[0].message.content or ""
+    except ValueError as e:
+        return f"[配置错误] {e}"
+    except OpenAIError as e:
+        return f"[API 调用失败] {e}"
+    except Exception as e:
+        if _is_timeout(e):
+            return "[API超时] DeepSeek 响应超时，请稍后重试"
+        return f"[未知错误] {e}"
 
 
 def analyze_mock_answer(question: str, answer: str, job_direction: str) -> dict:

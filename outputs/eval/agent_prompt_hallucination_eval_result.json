@@ -1,0 +1,71 @@
+{
+  "case_id": "agent_prompt_hallucination_interview",
+  "job_direction": "Agent / RAG 应用工程师，大模型应用工程师",
+  "dry_run": false,
+  "repeat": 1,
+  "prompt_path": "outputs/eval/agent_prompt_hallucination_prompt.md",
+  "report_path": "outputs/eval/agent_prompt_hallucination_report.md",
+  "runs": [
+    {
+      "index": 1,
+      "report_path": "outputs/eval/agent_prompt_hallucination_report.md",
+      "checks": {
+        "must_cover": {
+          "Agent 架构能力": true,
+          "Prompt 工程能力": true,
+          "大模型应用理解": true,
+          "问题定位与稳定性意识": true,
+          "技术取舍能力": true,
+          "表达结构与交付感": true
+        },
+        "should_mark_unverified": {
+          "MySQL 表设计": false,
+          "Redis 状态管理": false,
+          "Celery 异步任务": false,
+          "Docker / Linux 部署": false
+        },
+        "must_find_issues": {
+          "RAG 只是规划方向，尚未完整实现，不能包装成已完成能力": {
+            "passed": true,
+            "matched_keywords": [
+              "RAG"
+            ]
+          },
+          "微调只是理解适用场景，项目中没有实际落地": {
+            "passed": false,
+            "matched_keywords": []
+          },
+          "后端工程化链路尚未完整接入，例如 Redis、MySQL、Celery": {
+            "passed": true,
+            "matched_keywords": [
+              "Redis",
+              "MySQL",
+              "Celery"
+            ]
+          },
+          "当前评测样本数量少，信效度仍有限": {
+            "passed": false,
+            "matched_keywords": []
+          },
+          "Markdown 输出不利于结构化校验，后续应考虑 JSON Schema": {
+            "passed": true,
+            "matched_keywords": [
+              "Markdown",
+              "JSON",
+              "Schema"
+            ]
+          }
+        },
+        "must_not_say": {
+          "候选人已经完整实现 RAG 系统": true,
+          "候选人已经完成模型微调": true,
+          "候选人 Redis / Celery 能力差": true,
+          "候选人后端工程能力不合格": true,
+          "语音识别错误导致候选人表达能力差": true
+        },
+        "passed": false
+      }
+    }
+  ],
+  "passed": false
+}

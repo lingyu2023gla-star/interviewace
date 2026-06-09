@@ -1,0 +1,44 @@
+{
+  "case_id": "agent_prompt_hallucination_interview",
+  "job_direction": "Agent / RAG 应用工程师，大模型应用工程师",
+  "must_cover": [
+    "Agent 架构能力",
+    "Prompt 工程能力",
+    "大模型应用理解",
+    "问题定位与稳定性意识",
+    "技术取舍能力",
+    "表达结构与交付感"
+  ],
+  "should_mark_partially_covered": [
+    "RAG 能力",
+    "微调与评估能力",
+    "后端工程基础"
+  ],
+  "should_mark_unverified": [
+    "MySQL 表设计",
+    "Redis 状态管理",
+    "Celery 异步任务",
+    "Docker / Linux 部署"
+  ],
+  "must_find_issues": [
+    "RAG 只是规划方向，尚未完整实现，不能包装成已完成能力",
+    "微调只是理解适用场景，项目中没有实际落地",
+    "后端工程化链路尚未完整接入，例如 Redis、MySQL、Celery",
+    "当前评测样本数量少，信效度仍有限",
+    "Markdown 输出不利于结构化校验，后续应考虑 JSON Schema"
+  ],
+  "must_not_say": [
+    "候选人已经完整实现 RAG 系统",
+    "候选人已经完成模型微调",
+    "候选人 Redis / Celery 能力差",
+    "候选人后端工程能力不合格",
+    "语音识别错误导致候选人表达能力差"
+  ],
+  "ideal_suggestions": [
+    "下次介绍 Agent 架构时，应补充状态管理、日志、测试和失败恢复",
+    "介绍 Prompt Engineering 时，应强调约束设计、输出结构化和评测闭环",
+    "谈 RAG 时要明确区分已实现和规划中，不要过度包装",
+    "谈微调时要说明当前没有落地，但理解数据集、SFT、LoRA 和评估前提",
+    "谈减少幻觉时要结合证据约束、枚举校验、未验证不打分和人工复核"
+  ]
+}

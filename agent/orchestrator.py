@@ -5,6 +5,7 @@ from agent.tools import (
     tool_parse_interview,
     tool_group_topics,
     tool_analyze_topics,
+    tool_analyze_full_interview,
     tool_generate_summary,
     tool_score_performance,
     tool_save_results,
@@ -17,6 +18,15 @@ TOOL_CHAIN_ANALYZE_INTERVIEW = [
     "parse_interview",
     "group_topics",
     "analyze_topics",
+    "generate_summary",
+    "score_performance",
+    "save_results",
+]
+
+TOOL_CHAIN_ANALYZE_FULL_CONTEXT = [
+    "parse_interview",
+    "build_full_interview_text",
+    "analyze_full_interview",
     "generate_summary",
     "score_performance",
     "save_results",
@@ -42,6 +52,7 @@ class InterviewOrchestrator:
         title: str = "未命名面试",
         on_step: callable | None = None,
         role_map: dict | None = None,
+        analysis_mode: str = "full_context",
     ) -> ToolResult:
         """
         执行 ANALYZE_INTERVIEW 完整链路。
@@ -53,6 +64,7 @@ class InterviewOrchestrator:
             on_step: 每步完成后的回调，签名 on_step(step_name: str, result: ToolResult)
                      供 Streamlit 实时更新进度
             role_map: 说话人角色映射，如 {"说话人1": "candidate", "说话人2": "interviewer"}
+            analysis_mode: 分析模式，"topic" 走原话题分组链路，"full_context" 走全量上下文链路
         Returns:
             最终 ToolResult，data 结构：
             {
@@ -70,9 +82,17 @@ class InterviewOrchestrator:
                 "job_direction": job_direction,
                 "title": title,
                 "role_map": role_map,
+                "analysis_mode": analysis_mode,
             },
             job_direction=job_direction,
         )
+
+        if analysis_mode not in {"topic", "full_context"}:
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"不支持的分析模式：{analysis_mode}",
+            )
 
         # Step 1: 解析
         result = tool_parse_interview(text, role_map=role_map)
@@ -86,29 +106,40 @@ class InterviewOrchestrator:
         if not pairs:
             return ToolResult(success=False, data=None, error="未找到有效问答轮次")
 
-        # Step 2: 话题分组
-        result = tool_group_topics(pairs)
-        if not result.success:
-            # 降级：每轮独立
-            groups = [{"topic": f"第{p['index']}轮", "turns": [p["index"]]} for p in pairs]
-        else:
-            groups = result.data["groups"]
-        ctx.tool_results["group_topics"] = result
-        if on_step:
-            on_step("group_topics", result)
+        if analysis_mode == "topic":
+            # Step 2: 话题分组
+            result = tool_group_topics(pairs)
+            if not result.success:
+                # 降级：每轮独立
+                groups = [{"topic": f"第{p['index']}轮", "turns": [p["index"]]} for p in pairs]
+            else:
+                groups = result.data["groups"]
+            ctx.tool_results["group_topics"] = result
+            if on_step:
+                on_step("group_topics", result)
 
-        # Step 3: 逐话题分析
-        result = tool_analyze_topics(groups, pairs, job_direction)
-        if not result.success:
-            # 重试一次
+            # Step 3: 逐话题分析
             result = tool_analyze_topics(groups, pairs, job_direction)
-        ctx.tool_results["analyze_topics"] = result
-        if on_step:
-            on_step("analyze_topics", result)
-        if not result.success:
-            return ToolResult(success=False, data=None, error=f"分析失败：{result.error}")
+            if not result.success:
+                # 重试一次
+                result = tool_analyze_topics(groups, pairs, job_direction)
+            ctx.tool_results["analyze_topics"] = result
+            if on_step:
+                on_step("analyze_topics", result)
+            if not result.success:
+                return ToolResult(success=False, data=None, error=f"分析失败：{result.error}")
 
-        feedbacks = result.data["feedbacks"]
+            feedbacks = result.data["feedbacks"]
+        else:
+            groups = [{"topic": "完整面试复盘", "turns": [p["index"] for p in pairs]}]
+            result = tool_analyze_full_interview(ctx)
+            ctx.tool_results["analyze_full_interview"] = result
+            if on_step:
+                on_step("analyze_full_interview", result)
+            if not result.success:
+                return ToolResult(success=False, data=None, error=f"全量上下文分析失败：{result.error}")
+
+            feedbacks = result.data["analyses"]
 
         # Step 4: 整体总结
         result = tool_generate_summary(feedbacks, job_direction)

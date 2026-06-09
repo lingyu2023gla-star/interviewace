@@ -7,6 +7,10 @@ prompts/interview_analysis.py — 面试复盘分析 Prompt 模板管理
 
 import json
 
+from jinja2 import Environment, StrictUndefined
+
+from prompts.dimensions import DiagnosisDimension, get_diagnosis_dimensions
+
 # ── Prompt 模板常量 ────────────────────────────────────────────────────────────
 # 基于 STAR 面试法，围绕「知道哪错了 → 知道怎么改 → 知道怎么练」闭环设计。
 
@@ -252,6 +256,105 @@ def build_grouping_prompt(pairs: list[dict]) -> str:
     questions_lines = [f"第 {p['index']} 轮：{p['question']}" for p in pairs]
     questions_text = "\n".join(questions_lines)
     return GROUPING_PROMPT_TEMPLATE.format(questions_text=questions_text)
+
+
+FULL_CONTEXT_ANALYSIS_PROMPT = """\
+你是一个技术面试复盘教练，专注于「大模型应用工程 / AI 应用后端 / Agent / RAG / 应用算法」方向。
+
+请基于完整面试转写，输出高密度、可执行的技术面试诊断。
+不要写泛泛总结，不要输出不可靠的综合评分，不要做空泛鼓励。
+
+## 分析原则
+
+1. 转写来自语音识别，可能有专业术语识别错误。请自动修正明显偏差，不要把语音识别错误归咎于候选人。
+2. 只评价技术岗位相关表现，重点看技术理解、项目可信度、工程意识和表达结构。
+3. 必须区分：
+   - 能力不足：回答错误、过浅、混乱或缺少实践细节
+   - 证据不足：本场没有问到，或候选人没有展开
+   - 覆盖缺口：目标岗位需要该能力，但本场没有充分展示
+4. 未被问到的能力不要强行打低分，标记为「未验证 / N/A」。
+5. 如果候选人只堆技术名词，但没有讲机制、边界、取舍、项目落地或验证方式，应指出为「概念知道，但深度不足」。
+6. 所有建议必须具体到“下次应该怎么说”或“项目中应该补什么证据”。
+
+## 岗位方向
+
+{{ job_direction }}
+
+请根据岗位方向动态调整关注重点：
+
+- 偏后端大模型应用：API、数据库、Redis、Celery、任务状态、异常处理、测试、部署、LLM 稳定性。
+- 偏 Agent / RAG：Orchestrator、Tool、状态流、RAG 召回/重排/引用、上下文组装、输出结构化。
+- 偏应用算法：Prompt、RAG 效果优化、微调、数据构造、评估集、指标体系、效果对比。
+
+## 完整面试转写
+
+{{ full_text }}
+
+## 输出格式
+
+请严格只输出以下 2 个部分。
+
+# 1. 能力诊断表
+
+请使用表格：
+
+| 维度 | 覆盖状态 | 证据强度 | 分数 | 诊断 | 具体建议 |
+|---|---|---|---:|---|---|
+
+维度固定如下：
+
+{% for dimension in dimensions -%}
+{{ loop.index }}. {{ dimension.name }}
+   - 关注点：{{ dimension.focus }}
+{% endfor %}
+
+规则：
+
+- 覆盖状态只能是：已覆盖 / 部分覆盖 / 未验证
+- 证据强度只能是：强 / 中 / 弱 / 无
+- 已覆盖或部分覆盖时，可以给 0-10 分
+- 未验证时，分数写 N/A，不要强行扣分
+- 诊断必须基于本场面试证据
+- 具体建议必须说明下一次应该如何补强
+
+# 2. 具体改进建议
+
+只列出最值得改的 {{ max_suggestions }} 个问题。
+不要泛泛而谈，每条都要能直接用于下一次面试准备。
+
+每条按以下格式输出：
+
+## 建议 X：标题
+
+- 暴露的问题：
+- 为什么会影响面试结果：
+- 下次应该怎么说：
+- 项目中应该补什么证据：
+- 面试官可能追问：
+"""
+
+
+def build_full_context_analysis_prompt(
+    full_text: str,
+    job_direction: str = "",
+    dimension_profile: str = "llm_app",
+    dimensions: list[DiagnosisDimension] | None = None,
+    max_suggestions: int = 5,
+) -> str:
+    """将完整面试文本和诊断维度渲染为全量上下文分析 Prompt。"""
+    selected_dimensions = dimensions
+    if selected_dimensions is None:
+        selected_dimensions = get_diagnosis_dimensions(dimension_profile)
+    if not selected_dimensions:
+        raise ValueError("能力诊断维度不能为空")
+
+    template = Environment(undefined=StrictUndefined).from_string(FULL_CONTEXT_ANALYSIS_PROMPT)
+    return template.render(
+        full_text=full_text,
+        job_direction=job_direction,
+        dimensions=selected_dimensions,
+        max_suggestions=max_suggestions,
+    )
 
 
 SCORING_PROMPT_TEMPLATE = """\
