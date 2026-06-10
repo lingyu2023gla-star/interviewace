@@ -177,6 +177,33 @@ def analyze_full_interview(full_text: str, job_direction: str = "") -> str:
         return f"[未知错误] {e}"
 
 
+def generate_text(prompt: str) -> str:
+    """调用 DeepSeek 生成通用文本，供上层服务复用。
+
+    Args:
+        prompt: 已构建好的完整提示词。
+
+    Returns:
+        模型生成的文本；调用失败时返回与现有分析函数一致的友好错误提示。
+    """
+    try:
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=_API_TIMEOUT,
+        )
+        return response.choices[0].message.content or ""
+    except ValueError as e:
+        return f"[配置错误] {e}"
+    except OpenAIError as e:
+        return f"[API 调用失败] {e}"
+    except Exception as e:
+        if _is_timeout(e):
+            return "[API超时] DeepSeek 响应超时，请稍后重试"
+        return f"[未知错误] {e}"
+
+
 def analyze_mock_answer(question: str, answer: str, job_direction: str) -> dict:
     """对模拟面试单轮回答生成简短反馈。
 
