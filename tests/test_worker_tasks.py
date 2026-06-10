@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from worker.tasks import run_generate_preparation_plan_task
+from worker.tasks import run_generate_preparation_plan_task, run_ping_task
+
+
+def test_run_ping_task() -> None:
+    assert run_ping_task()["status"] == "ok"
+    assert run_ping_task()["message"] == "pong"
+    assert run_ping_task({"x": 1})["payload"]["x"] == 1
 
 
 def _payload() -> dict:

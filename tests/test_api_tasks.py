@@ -7,6 +7,24 @@ from fastapi.testclient import TestClient
 from api.main import app
 
 
+def test_submit_ping_task(monkeypatch) -> None:
+    class FakeAsyncResult:
+        id = "fake-ping-task-id"
+
+    monkeypatch.setattr(
+        "api.routers.tasks.ping_task.delay",
+        lambda payload: FakeAsyncResult(),
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/tasks/ping")
+    data = response.json()
+
+    assert response.status_code == 202
+    assert data["task_id"] == "fake-ping-task-id"
+    assert data["status"] == "PENDING"
+
+
 def test_get_task_status_pending(monkeypatch) -> None:
     class FakeAsyncResult:
         status = "PENDING"

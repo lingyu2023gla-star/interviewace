@@ -5,11 +5,23 @@ from __future__ import annotations
 from celery.result import AsyncResult
 from fastapi import APIRouter
 
-from api.schemas import TaskStatusResponse
+from api.schemas import TaskStatusResponse, TaskSubmitResponse
 from worker.celery_app import celery_app
+from worker.tasks import ping_task
 
 
 router = APIRouter()
+
+
+@router.post("/tasks/ping", response_model=TaskSubmitResponse, status_code=202)
+def submit_ping_task() -> TaskSubmitResponse:
+    """Submit a lightweight Celery ping task."""
+    async_result = ping_task.delay({"source": "api"})
+    return TaskSubmitResponse(
+        task_id=async_result.id,
+        status="PENDING",
+        message="Ping task submitted.",
+    )
 
 
 @router.get("/tasks/{task_id}", response_model=TaskStatusResponse)

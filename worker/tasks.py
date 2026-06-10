@@ -7,6 +7,22 @@ from preparation.service import generate_preparation_plan
 from worker.celery_app import celery_app
 
 
+def run_ping_task(payload: dict | None = None) -> dict:
+    """Return a lightweight JSON-serializable ping response."""
+    payload = payload or {}
+    return {
+        "status": "ok",
+        "message": "pong",
+        "payload": payload,
+    }
+
+
+@celery_app.task(name="system.ping")
+def ping_task(payload: dict | None = None) -> dict:
+    """Celery ping task for local Redis/worker integration checks."""
+    return run_ping_task(payload)
+
+
 def run_generate_preparation_plan_task(payload: dict) -> dict:
     """Run preparation plan generation from a JSON-serializable payload."""
     db_path = payload.get("db_path")
