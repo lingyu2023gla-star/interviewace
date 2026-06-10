@@ -61,3 +61,28 @@ class KnowledgeSearchResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     score: float | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceContextBlock:
+    """A numbered evidence block for citation-based prompts."""
+
+    evidence_id: str
+    chunk_id: int
+    source_type: str
+    source_id: str
+    content: str
+
+    title: str | None = None
+    snippet: str | None = None
+
+    session_id: int | None = None
+    turn_id: int | None = None
+    question_id: int | None = None
+
+    job_direction: str | None = None
+    topic: str | None = None
+    dimension_key: str | None = None
+
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
