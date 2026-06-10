@@ -78,3 +78,18 @@ class PreparationPlanApiResponse(BaseModel):
     evidence_context: str
     used_evidence_count: int
     prompt: str | None = None
+
+
+class TaskSubmitResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    ready: bool
+    successful: bool
+    result: dict[str, Any] | None = None
+    error: str | None = None

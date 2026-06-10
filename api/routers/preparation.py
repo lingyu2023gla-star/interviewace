@@ -5,9 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from api.deps import get_db_path
-from api.schemas import PreparationPlanApiRequest, PreparationPlanApiResponse
+from api.schemas import PreparationPlanApiRequest, PreparationPlanApiResponse, TaskSubmitResponse
 from preparation.schemas import PreparationPlanRequest
 from preparation.service import generate_preparation_plan
+from worker.tasks import generate_preparation_plan_task
 
 
 router = APIRouter()
@@ -38,4 +39,26 @@ def create_preparation_plan(request: PreparationPlanApiRequest) -> PreparationPl
         evidence_context=result.evidence_context,
         used_evidence_count=result.used_evidence_count,
         prompt=result.prompt,
+    )
+
+
+@router.post("/plan-tasks", response_model=TaskSubmitResponse, status_code=202)
+def submit_preparation_plan_task(request: PreparationPlanApiRequest) -> TaskSubmitResponse:
+    """Submit an asynchronous preparation plan task."""
+    payload = {
+        "db_path": get_db_path(),
+        "user_goal": request.user_goal,
+        "job_direction": request.job_direction,
+        "query": request.query,
+        "plan_days": request.plan_days,
+        "daily_minutes": request.daily_minutes,
+        "max_tasks_per_day": request.max_tasks_per_day,
+        "top_k": request.top_k,
+        "include_prompt": request.include_prompt,
+    }
+    async_result = generate_preparation_plan_task.delay(payload)
+    return TaskSubmitResponse(
+        task_id=async_result.id,
+        status="PENDING",
+        message="Preparation plan task submitted.",
     )
