@@ -1,156 +1,344 @@
-# InterviewAce · AI 面试复盘驾驶舱
+# InterviewAce
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red)
-![Tests](https://img.shields.io/badge/Tests-71%20passed-brightgreen)
-![License](https://img.shields.io/badge/License-MIT-green)
+InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文本中进行结构化复盘、能力诊断、知识库沉淀、证据检索、基于历史证据的准备计划生成，并通过 FastAPI + Celery/Redis 提供服务化能力。
 
-> 上传面试录音转写文件，AI 自动复盘、评分、沉淀题库、追踪成长。
+## 1. 项目背景
 
----
+面试复盘通常依赖人工回忆，容易遗漏关键问题：哪些回答没有说清楚、哪些技术点只是提到但没有展开、哪些能力本场没有被验证，都很难在面试后准确还原。
 
-## 项目背景
+大模型可以帮助整理面试对话、诊断回答问题并生成改进建议，但直接把完整面试丢给 LLM 总结，容易出现幻觉或过度推断。InterviewAce 因此引入了 `knowledge_chunks`、Evidence Context 和引用式 Prompt：先把复盘结果沉淀为可追溯的知识片段，再通过检索和证据编号约束后续建议。
 
-面试复盘效率提高插件：
-本项目针对：不知道哪里答得不好、知道问题不知道怎么改、复盘了也容易忘。
-InterviewAce 从自身痛点出发，构建了一套完整的 AI 驱动复盘工具。
+项目从 Streamlit MVP 演进为一个后端大模型应用：保留本地可用的复盘驾驶舱，同时提供 FastAPI、知识库检索和 Celery 异步任务能力。
 
----
+## 2. 核心功能
 
-## 功能概览
+- 面试转写文本解析，支持讯飞听见导出的 `.txt` 文本。
+- full-context 面试分析，基于完整上下文进行结构化复盘。
+- 多维能力诊断，覆盖技术概念、技术深度、后端工程、Agent、RAG、Prompt Engineering 等维度。
+- STAR / 技术表达复盘，帮助定位回答结构、项目证据和交付感问题。
+- 历史面试记录保存，沉淀 sessions / turns / questions。
+- 面试知识库 `knowledge_chunks`，支持可追溯、幂等写入。
+- keyword / SQLite FTS 检索，并在 FTS 不可用时降级到 LIKE 检索。
+- Evidence Context 构建，使用 `[E1]` / `[E2]` 证据编号约束后续判断。
+- 基于历史证据生成面试准备计划。
+- FastAPI 接口服务，暴露检索、证据上下文和准备计划能力。
+- Redis / Celery 异步任务接口，支持任务提交、状态查询和本地 ping 验收。
+- 本地可选 Redis + Celery worker 集成验收。
 
-| 功能 | 说明 |
-|------|------|
-| 📄 智能解析 | 解析讯飞听见转写文件，自动识别面试官与候选人 |
-| 👥 角色确认 | 上传后可手动确认候选人说话人，其余说话人自动视为面试官 |
-| 🧠 全量复盘 | 基于完整面试上下文生成结构化反馈，避免逐轮分析割裂语境 |
-| 🗂️ 话题分组 | 保留话题分组分析链路，可将多轮对话按话题合并 |
-| 🔍 STAR 复盘 | 基于 STAR 面试法生成结构化反馈报告 |
-| 📋 整体总结 | 跨话题识别核心问题、亮点与优先改进建议 |
-| 📊 五维评分 | STAR完整度、技术深度、表达逻辑、主动性、结果导向 |
-| 📚 题库沉淀 | 自动将弱项话题沉淀为题库，支持掌握程度追踪 |
-| 📈 成长追踪 | 跨多次面试的雷达图与折线趋势图 |
-| 🎤 模拟面试 | 从题库抽题练习，并对回答生成即时反馈 |
-| 🎯 练习计划 | 基于历史评分和题库弱项生成维度强化计划 |
-| 🗄️ 历史回顾 | 侧边栏随时查看历史复盘报告 |
+当前没有实现 embedding 向量库、rerank 或模型微调；知识库检索以 keyword / FTS 为主。
 
----
+## 3. 技术栈
 
-## 技术架构
+- Python 3.11+
+- Streamlit
+- FastAPI
+- Pydantic
+- SQLite
+- SQLite FTS / keyword search
+- Redis
+- Celery
+- pytest
+- Jinja2
+- Plotly
+- DeepSeek / OpenAI-compatible API
 
-```
-用户上传转写文件
-        ↓
-  Agent Orchestrator
-        ↓
-┌──────────────────────────────────────┐
-│  Tool 1: parse_interview             │  讯飞格式解析，说话人分离
-│  Tool 2: analyze_full_interview      │  完整上下文复盘（默认链路）
-│  Tool 3: generate_summary            │  跨话题整体总结
-│  Tool 4: score_performance           │  五维能力评分（JSON 输出）
-│  Tool 5: save_results                │  SQLite 持久化 + 题库沉淀
-└──────────────────────────────────────┘
-        ↓
-  Streamlit UI（主页 + 题库 + 成长追踪 + 模拟面试 + 练习计划）
-```
+依赖版本以 [requirements.txt](requirements.txt) 为准。
 
-每个 Tool 返回统一的 `ToolResult(success, data, error)`。Orchestrator 默认走完整上下文复盘链路，同时保留 `topic` 模式：话题分组失败时可降级为逐轮分析，评分或总结失败时不阻断主流程。
+## 4. 系统架构
 
----
-
-## 目录结构
-
-```
-interviewace/
-├── app.py                  # Streamlit 主入口：上传、预览、分析、历史查看
-├── agent/
-│   ├── orchestrator.py     # 主控 Agent，管理分析链路与降级策略
-│   ├── tools.py            # Tool 封装层（ToolResult 标准返回）
-│   └── schemas.py          # ToolResult / AgentContext / Intent 数据结构
-├── core/
-│   ├── parser.py           # 讯飞转写格式解析
-│   ├── analyzer.py         # DeepSeek API 调用（含 JSON 校验与降级）
-│   └── storage.py          # SQLite 读写（sessions / turns / questions）
-├── prompts/
-│   └── interview_analysis.py  # 分析、总结、分组、评分、模拟面试、练习计划 Prompt
-├── pages/
-│   ├── question_bank.py    # 题库页面
-│   ├── growth.py           # 成长追踪页面
-│   ├── mock_interview.py   # 模拟面试页面
-│   └── practice_plan.py    # 练习计划页面
-├── data/
-│   └── interviews.db       # 本地 SQLite 数据库（运行时生成/更新）
-└── tests/                  # 71 个单元测试
-    ├── test_parser.py
-    ├── test_storage.py
-    ├── test_analyzer.py
-    └── test_orchestrator.py
+```text
+Streamlit UI
+    ↓
+core / agent
+    ↓
+knowledge
+    ↓
+preparation
+    ↓
+FastAPI api
+    ↓
+Celery worker
+    ↓
+Redis broker / result backend
 ```
 
----
+```text
+app.py / pages/       Streamlit UI
+core/                 转写解析、LLM 分析、基础存储
+agent/                Agent Orchestrator 与 Tool 链路
+prompts/              Prompt 模板与 Prompt Builder
+knowledge/            knowledge_chunks、检索、Evidence Context
+preparation/          准备计划生成 service
+api/                  FastAPI router 和 schema
+worker/               Celery app 和异步任务
+tests/                单元测试、API 测试、可选集成测试
+scripts/              本地启动脚本
+docs/                 补充文档
+```
 
-## 🌐 在线体验
-> 🔗 [点击访问 InterviewAce](https://interviewace-6qdx2saopbqkyz7hqq4hjg.streamlit.app/)
->
-> 无需安装，上传讯飞听见转写文件即可开始使用。
+## 5. 已完成版本
 
----
+| 阶段 | 能力 | 说明 |
+|---|---|---|
+| V1 | Knowledge Base Model | 新增 `knowledge_chunks` 数据模型、索引和幂等写入服务。 |
+| V2 | Keyword / FTS Search | 基于 SQLite FTS5 / LIKE fallback 实现关键词检索。 |
+| V3 | Evidence Context | 将检索结果格式化为 `[E1]` / `[E2]` 引用式证据上下文。 |
+| V4.1 | Preparation Prompt Builder | 构建基于历史证据的面试准备计划 Prompt。 |
+| V4.2 | Preparation Service | 串联 search -> evidence -> prompt -> LLM，生成准备计划。 |
+| V5 | FastAPI API | 暴露 search / evidence-context / preparation plan API。 |
+| V6.1 | Celery Task API | 新增异步任务提交和任务状态查询接口。 |
+| V6.2 | Redis / Celery Integration | 新增 ping task、本地 worker 验收脚本和可选 integration test。 |
 
-## 快速启动
+## 6. 快速开始
+
+### 1. 创建虚拟环境
 
 ```bash
-git clone https://github.com/yourname/interviewace
-cd interviewace
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # 填入 DEEPSEEK_API_KEY
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. 安装依赖
+
+```bash
+.venv/bin/pip install -r requirements.txt
+```
+
+### 3. 配置环境变量
+
+LLM 调用使用项目现有的 DeepSeek / OpenAI-compatible 配置，关键变量见 [core/analyzer.py](core/analyzer.py)。本地通常需要配置：
+
+```bash
+DEEPSEEK_API_KEY=...
+```
+
+### 4. 运行测试
+
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+
+默认测试不依赖 Redis / Celery worker，也不会调用真实 LLM。
+
+## 7. Streamlit 运行方式
+
+```bash
 streamlit run app.py
 ```
 
----
+启动后访问：
 
-## 设计亮点
-
-**1. 完整上下文优先**
-面试中的同一能力点可能散落在多轮对话中，默认链路会先构建完整问答上下文，再生成整体复盘，减少逐轮分析导致的语境割裂。
-
-**2. 分层降级策略**
-话题分组失败 → 降级为逐轮分析；评分失败 → 跳过不阻断主流程；
-分析失败 → 自动重试一次。核心链路在 API 不稳定时仍能跑通。
-
-**3. Prompt 针对语音识别噪音优化**
-面试录音转写存在大量同音字错误（如「癌症者」=「Agent」），
-Prompt 前置说明要求 AI 自动修正理解，不将识别错误归咎于候选人。
-
-**4. Tool 层标准化**
-所有 AI 调用和数据库操作封装为统一 ToolResult，
-Orchestrator 通过声明式工具链驱动，便于扩展新意图和新工具。
-
-**5. 复盘到练习的闭环**
-复盘报告会沉淀题库，题库掌握程度、模拟面试反馈和历史评分共同支撑成长追踪与练习计划。
-
----
-
-## 测试覆盖
-
-```
-71 个单元测试，覆盖：
-- 转写格式解析（讯飞听见格式、时间戳、说话人映射、尾部过滤）
-- SQLite CRUD（会话、话题、评分、题库）
-- Analyzer 纯逻辑（JSON 校验、降级、题目提取、模拟面试评分）
-- Agent 层（ToolResult、AgentContext、工具链、降级路径）
+```text
+http://localhost:8501
 ```
 
----
+Streamlit 入口适合本地上传面试转写、查看复盘、题库和成长趋势。
 
-## 后续规划
+## 8. FastAPI 运行方式
 
-- [ ] 实时录音转写接入，降低使用门槛
-- [ ] 支持更多转写文件格式
-- [ ] 为模拟面试增加多轮追问能力
-- [ ] 增加导出复盘报告功能
+推荐使用脚本：
 
----
+```bash
+./scripts/run_api.sh
+```
 
-## 📸 功能截图
-> 截图待补充
+也可以直接启动：
+
+```bash
+uvicorn api.main:app --reload
+```
+
+访问 API 文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## 9. API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/health` | 健康检查 |
+| POST | `/api/knowledge/search` | 知识库检索 |
+| POST | `/api/knowledge/evidence-context` | 构建 Evidence Context |
+| POST | `/api/preparation/plan` | 同步生成准备计划 |
+| POST | `/api/preparation/plan-tasks` | 异步提交准备计划任务 |
+| POST | `/api/tasks/ping` | 提交 Celery ping task |
+| GET | `/api/tasks/{task_id}` | 查询任务状态 |
+
+## 10. API 示例
+
+### Knowledge Search
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/knowledge/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Agent RAG",
+    "top_k": 5
+  }' | python -m json.tool
+```
+
+### Evidence Context
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/knowledge/evidence-context \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Agent RAG",
+    "top_k": 5
+  }' | python -m json.tool
+```
+
+### Async Ping Task
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/tasks/ping | python -m json.tool
+```
+
+查询任务：
+
+```bash
+curl -s http://127.0.0.1:8000/api/tasks/<task_id> | python -m json.tool
+```
+
+实际使用时不要带尖括号，替换为真实 `task_id`。
+
+## 11. Redis / Celery 本地集成
+
+### 1. 启动 Redis
+
+Docker：
+
+```bash
+./scripts/run_redis_docker.sh
+```
+
+如果本机没有 Docker，可以使用本地 Redis：
+
+```bash
+brew install redis
+./scripts/run_redis_local.sh
+redis-cli ping
+```
+
+也可以直接运行：
+
+```bash
+redis-server
+redis-cli ping
+```
+
+### 2. 启动 Celery worker
+
+```bash
+./scripts/run_worker.sh
+```
+
+### 3. 启动 API
+
+```bash
+./scripts/run_api.sh
+```
+
+### 4. 验证 ping task
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/tasks/ping | python -m json.tool
+```
+
+然后用返回的 `task_id` 查询：
+
+```bash
+curl -s http://127.0.0.1:8000/api/tasks/<task_id> | python -m json.tool
+```
+
+预期最终返回：
+
+```json
+{
+  "status": "SUCCESS",
+  "ready": true,
+  "successful": true,
+  "result": {
+    "status": "ok",
+    "message": "pong",
+    "payload": {
+      "source": "api"
+    }
+  },
+  "error": null
+}
+```
+
+更完整的本地 Redis / Celery 验收说明见 [docs/celery_redis_local.md](docs/celery_redis_local.md)。
+
+## 12. 可选集成测试
+
+```bash
+RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_integration.py -v
+```
+
+说明：
+
+- 默认 pytest 会跳过该测试。
+- 只有 Redis 和 Celery worker 已启动时才运行。
+- 该测试只验证 `ping_task`，不调用 LLM。
+
+## 13. 环境变量
+
+```text
+INTERVIEWACE_DB_PATH
+CELERY_BROKER_URL
+CELERY_RESULT_BACKEND
+DEEPSEEK_API_KEY
+```
+
+- `INTERVIEWACE_DB_PATH` 默认使用 `data/interviews.db`。
+- `CELERY_BROKER_URL` 默认 `redis://localhost:6379/0`。
+- `CELERY_RESULT_BACKEND` 默认 `redis://localhost:6379/1`。
+- `DEEPSEEK_API_KEY` 用于 `core/analyzer.py` 中的 DeepSeek / OpenAI-compatible LLM 调用。
+
+## 14. 测试策略
+
+- 默认测试不依赖 Redis。
+- 默认测试不调用真实 LLM。
+- API 测试使用 FastAPI `TestClient`。
+- Celery `delay` / `AsyncResult` 在单元测试中使用 monkeypatch。
+- 真实 Redis + worker 只用于可选集成验收。
+
+## 15. 当前限制
+
+- 当前知识库检索以 keyword / FTS 为主，尚未接入 embedding retriever。
+- 当前没有实现模型微调。
+- 当前异步任务结果主要依赖 Redis result backend，尚未落库持久化。
+- 当前未实现任务取消 / revoke。
+- 当前 SQLite 更适合本地和 MVP，生产环境可迁移到 MySQL / PostgreSQL。
+- `preparation.generate_plan` 异步任务会调用真实 LLM，需要 API key、网络和代理配置正常。
+
+## 16. Roadmap
+
+- README 配套截图或接口示例图。
+- Docker Compose 编排 API / worker / redis。
+- `task_records` 表，持久化任务状态和结果。
+- MySQL / PostgreSQL 数据库迁移。
+- Embedding retriever + rerank。
+- 更完整的 RAG citations。
+- 面试准备计划 UI 接入。
+- 异步任务状态前端轮询。
+- Prompt evaluation golden cases 增强。
+- JSON Schema 结构化 LLM 输出。
+
+## 17. 项目协作指南
+
+AI coding agent 开发规范见：
+
+```text
+AGENTS.md
+```
+
+如果使用 Claude Code：
+
+```text
+CLAUDE.md delegates to AGENTS.md.
+```
