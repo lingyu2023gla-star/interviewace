@@ -27,7 +27,7 @@ InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文
 - SQLite `task_records` 持久化异步任务请求、状态、结果和失败原因。
 - 本地可选 Redis + Celery worker 集成验收。
 
-当前没有实现 embedding 检索、向量数据库、rerank 或模型微调；知识库检索以 keyword / FTS 为主。V9.1 已新增 retriever 抽象层，详见 [docs/retrievers.md](docs/retrievers.md)；V9.2 已新增 SQLite embedding store 数据结构，详见 [docs/embedding_store.md](docs/embedding_store.md)。
+当前没有实现向量数据库、rerank 或模型微调；知识库检索默认仍以 keyword / FTS 为主。V9.1 已新增 retriever 抽象层，详见 [docs/retrievers.md](docs/retrievers.md)；V9.2 已新增 SQLite embedding store，详见 [docs/embedding_store.md](docs/embedding_store.md)；V9.3 已新增本地可测试的 EmbeddingRetriever，详见 [docs/embedding_retriever.md](docs/embedding_retriever.md)。
 
 ## 3. 技术栈
 
@@ -355,7 +355,7 @@ DEEPSEEK_API_KEY
 ## 16. 当前限制
 
 - 当前知识库检索以 keyword / FTS 为主，尚未接入 embedding retriever。
-- 当前已具备 `chunk_embeddings` 存储结构，但尚未接真实 embedding API 或向量检索链路。
+- 当前已具备 `chunk_embeddings` 存储结构和本地 `EmbeddingRetriever`，但尚未接真实 embedding API，preparation 主链路也尚未切换到 embedding 检索。
 - 当前没有实现模型微调。
 - 当前 Structured Output 先支持 preparation plan，其他复盘报告仍以 Markdown 为主。
 - 当前 Celery 执行仍依赖 Redis broker / result backend；`task_records` 是 SQLite 本地持久化审计表，不是分布式任务库。
