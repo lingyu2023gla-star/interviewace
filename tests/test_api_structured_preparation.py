@@ -143,6 +143,7 @@ def test_structured_preparation_plan_passes_request_params(monkeypatch) -> None:
             "user_goal": "准备面试",
             "job_direction": "大模型应用工程师",
             "query": "",
+            "retriever_type": "embedding",
             "plan_days": 3,
             "daily_minutes": 30,
             "max_tasks_per_day": 2,
@@ -156,6 +157,7 @@ def test_structured_preparation_plan_passes_request_params(monkeypatch) -> None:
     assert captured["user_goal"] == "准备面试"
     assert captured["job_direction"] == "大模型应用工程师"
     assert captured["query"] == ""
+    assert captured["retriever_type"] == "embedding"
     assert captured["plan_days"] == 3
     assert captured["daily_minutes"] == 30
     assert captured["max_tasks_per_day"] == 2
@@ -179,11 +181,38 @@ def test_structured_preparation_plan_validation_error() -> None:
         "/api/preparation/structured-plan",
         json={"user_goal": "准备面试", "top_k": 0},
     )
+    bad_retriever_type = client.post(
+        "/api/preparation/structured-plan",
+        json={"user_goal": "准备面试", "retriever_type": "unknown"},
+    )
 
     assert bad_goal.status_code == 422
     assert bad_days.status_code == 422
     assert bad_minutes.status_code == 422
     assert bad_top_k.status_code == 422
+    assert bad_retriever_type.status_code == 422
+
+
+def test_structured_preparation_plan_retriever_type_defaults_to_keyword(monkeypatch) -> None:
+    captured = {}
+
+    def fake_generate_structured_preparation_plan(**kwargs):
+        captured.update(kwargs)
+        return FakeResult()
+
+    monkeypatch.setattr(
+        "api.routers.preparation.generate_structured_preparation_plan",
+        fake_generate_structured_preparation_plan,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/preparation/structured-plan",
+        json={"user_goal": "准备 Agent/RAG 应用工程师面试"},
+    )
+
+    assert response.status_code == 200
+    assert captured["retriever_type"] == "keyword"
 
 
 def test_structured_preparation_plan_supports_pydantic_v1_dict(monkeypatch) -> None:

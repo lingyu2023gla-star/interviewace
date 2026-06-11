@@ -27,6 +27,7 @@ def _payload() -> dict:
         "user_goal": "准备面试",
         "job_direction": "大模型应用工程师",
         "query": "Agent",
+        "retriever_type": "hybrid",
         "plan_days": 7,
         "daily_minutes": 60,
         "max_tasks_per_day": 3,
@@ -61,6 +62,7 @@ def test_run_generate_preparation_plan_task_returns_dict(monkeypatch) -> None:
     assert result["used_evidence_count"] == 1
     assert result["prompt"] is None
     assert captured["request"].user_goal == "准备面试"
+    assert captured["request"].retriever_type == "hybrid"
     assert captured["db_path"] == "/tmp/test.db"
 
 
@@ -87,6 +89,8 @@ def test_run_generate_preparation_plan_task_propagates_error(monkeypatch) -> Non
 
 
 def test_run_generate_structured_preparation_plan_task_returns_dict(monkeypatch) -> None:
+    captured = {}
+
     class FakePlan:
         def model_dump(self):
             return {"summary": "structured summary"}
@@ -102,6 +106,7 @@ def test_run_generate_structured_preparation_plan_task_returns_dict(monkeypatch)
         prompt = None
 
     def fake_generate_structured_preparation_plan(**kwargs):
+        captured.update(kwargs)
         return FakeResult()
 
     monkeypatch.setattr(
@@ -114,6 +119,7 @@ def test_run_generate_structured_preparation_plan_task_returns_dict(monkeypatch)
     assert result["structured_plan"]["summary"] == "structured summary"
     assert result["raw_output"] == '{"summary":"structured summary"}'
     assert result["used_evidence_count"] == 1
+    assert captured["retriever_type"] == "hybrid"
 
 
 def test_worker_task_success_writes_task_record(tmp_path) -> None:

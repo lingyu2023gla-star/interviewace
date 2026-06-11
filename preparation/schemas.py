@@ -12,6 +12,7 @@ class PreparationPlanRequest:
     user_goal: str
     job_direction: str = ""
     query: str = ""
+    retriever_type: str = "keyword"
     plan_days: int = 7
     daily_minutes: int = 60
     max_tasks_per_day: int = 3

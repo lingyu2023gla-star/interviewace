@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from knowledge.repository import upsert_knowledge_chunks
-from knowledge.schemas import KnowledgeChunk
+from knowledge.schemas import KnowledgeChunk, KnowledgeSearchResult
 from preparation.schemas import PreparationPlanRequest
 from preparation.service import generate_preparation_plan
 
@@ -157,3 +157,65 @@ def test_generate_preparation_plan_calls_llm_with_prompt(tmp_path, monkeypatch) 
     assert "大模型应用工程师" in prompt
     assert "Agent 架构复盘" in prompt
     assert "# 2. 7 天准备计划" in prompt
+
+
+def test_generate_preparation_plan_default_retriever_type_is_keyword(tmp_path, monkeypatch) -> None:
+    db_path = str(tmp_path / "preparation.db")
+    captured = {}
+
+    class FakeRetriever:
+        def retrieve(self, **kwargs):
+            captured["retrieve_kwargs"] = kwargs
+            return [
+                KnowledgeSearchResult(
+                    chunk_id=1,
+                    source_type="turn_feedback",
+                    source_id="turn:1:feedback",
+                    title="Agent 架构复盘",
+                    content="候选人讲到了 Orchestrator。",
+                    snippet="候选人讲到了 Orchestrator。",
+                )
+            ]
+
+    def fake_get_retriever(retriever_type: str = "keyword"):
+        captured["retriever_type"] = retriever_type
+        return FakeRetriever()
+
+    monkeypatch.setattr("preparation.service.get_retriever", fake_get_retriever)
+    monkeypatch.setattr("core.analyzer.generate_text", lambda prompt: "计划")
+
+    result = generate_preparation_plan(db_path, PreparationPlanRequest(user_goal="准备面试"))
+
+    assert captured["retriever_type"] == "keyword"
+    assert captured["retrieve_kwargs"]["query"] == "准备面试"
+    assert result.used_evidence_count == 1
+
+
+def test_generate_preparation_plan_uses_opt_in_hybrid_retriever(tmp_path, monkeypatch) -> None:
+    db_path = str(tmp_path / "preparation.db")
+    captured = {}
+
+    class FakeRetriever:
+        def retrieve(self, **kwargs):
+            captured["retrieve_kwargs"] = kwargs
+            return []
+
+    def fake_get_retriever(retriever_type: str = "keyword"):
+        captured["retriever_type"] = retriever_type
+        return FakeRetriever()
+
+    monkeypatch.setattr("preparation.service.get_retriever", fake_get_retriever)
+    monkeypatch.setattr("core.analyzer.generate_text", lambda prompt: "计划")
+    request = PreparationPlanRequest(
+        user_goal="准备面试",
+        query="Agent",
+        retriever_type="hybrid",
+        top_k=3,
+    )
+
+    result = generate_preparation_plan(db_path, request)
+
+    assert captured["retriever_type"] == "hybrid"
+    assert captured["retrieve_kwargs"]["top_k"] == 3
+    assert captured["retrieve_kwargs"]["query"] == "Agent"
+    assert result.used_evidence_count == 0

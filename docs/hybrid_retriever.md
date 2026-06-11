@@ -60,26 +60,34 @@ This makes the first hybrid implementation simple, deterministic, and less sensi
 8. replaces `score` with the hybrid RRF score;
 9. returns top results by hybrid score descending.
 
-## 5. Current Scope
+## 5. Preparation Opt-in
 
-V9.4 intentionally does not implement:
+V9.5 exposes retriever selection through `retriever_type`.
+
+- Default: `keyword`
+- Optional: `fts`, `embedding`, `hybrid`
+
+Preparation services and API endpoints can now request `retriever_type="hybrid"`, but old requests that omit the field still use keyword / FTS retrieval. Hybrid retrieval still depends on existing SQLite `chunk_embeddings`; it does not generate embeddings automatically and does not call a real embedding API.
+
+## 6. Current Scope
+
+V9.4 / V9.5 intentionally do not implement:
 
 - real embedding API integration;
 - OpenAI / DeepSeek / BGE embedding providers;
 - rerank or `Reranker`;
 - vector database integration;
-- preparation service integration.
+- default preparation service switch to hybrid.
 
-The default preparation services still use keyword / FTS search directly.
-
-## 6. Relationship To Earlier V9 Work
+## 7. Relationship To Earlier V9 Work
 
 - V9.1 introduced `BaseRetriever`, `KeywordRetriever`, and retriever factory.
 - V9.2 introduced SQLite `chunk_embeddings`.
 - V9.3 introduced `EmbeddingRetriever`.
 - V9.4 introduces `HybridRetriever` as an opt-in retriever.
+- V9.5 exposes retriever selection to preparation services, APIs, and async task payloads.
 
-## 7. Testing
+## 8. Testing
 
 ```bash
 .venv/bin/python -m pytest tests/test_hybrid_retriever.py -v
@@ -87,11 +95,10 @@ The default preparation services still use keyword / FTS search directly.
 
 The tests use fake child retrievers and do not require network, Redis, Docker, Celery worker, real LLM calls, or a real embedding API.
 
-## 8. Next Step
+## 9. Next Step
 
 Later versions can add:
 
-- opt-in preparation service configuration for retriever selection;
 - real embedding providers;
 - score diagnostics for hybrid retrieval;
 - optional reranker after candidate retrieval.

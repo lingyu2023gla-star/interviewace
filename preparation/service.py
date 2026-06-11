@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core import analyzer
 from knowledge.context_builder import build_evidence_context
-from knowledge.search import search_knowledge_chunks
+from knowledge.retrievers import get_retriever
 from preparation.schemas import PreparationPlanRequest, PreparationPlanResult
 from prompts.preparation_plan import build_preparation_plan_prompt
 
@@ -31,7 +31,8 @@ def generate_preparation_plan(
     """Generate a preparation plan from retrieved historical evidence."""
     _validate_request(request)
     query = request.query.strip() or request.user_goal
-    results = search_knowledge_chunks(
+    retriever = get_retriever(request.retriever_type)
+    results = retriever.retrieve(
         db_path=db_path,
         query=query,
         top_k=request.top_k,

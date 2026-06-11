@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+RetrieverType = Literal["keyword", "fts", "embedding", "hybrid"]
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -63,6 +65,7 @@ class PreparationPlanApiRequest(BaseModel):
     user_goal: str = Field(..., min_length=1)
     job_direction: str = ""
     query: str = ""
+    retriever_type: RetrieverType = "keyword"
     plan_days: int = Field(default=7, ge=1, le=30)
     daily_minutes: int = Field(default=60, ge=10, le=240)
     max_tasks_per_day: int = Field(default=3, ge=1, le=8)
@@ -84,6 +87,7 @@ class StructuredPreparationPlanApiRequest(BaseModel):
     user_goal: str = Field(..., min_length=1)
     job_direction: str = ""
     query: str = ""
+    retriever_type: RetrieverType = "keyword"
     plan_days: int = Field(default=7, ge=1, le=30)
     daily_minutes: int = Field(default=60, ge=10, le=240)
     max_tasks_per_day: int = Field(default=3, ge=1, le=8)

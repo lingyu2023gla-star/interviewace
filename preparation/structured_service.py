@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from core.analyzer import generate_text
 from knowledge.context_builder import build_evidence_context
-from knowledge.search import search_knowledge_chunks
+from knowledge.retrievers import get_retriever
 from preparation.structured_parser import parse_structured_preparation_plan
 from preparation.structured_schemas import StructuredPreparationPlan
 from prompts.structured_preparation_plan import build_structured_preparation_plan_prompt
@@ -55,6 +55,7 @@ def generate_structured_preparation_plan(
     daily_minutes: int = 60,
     max_tasks_per_day: int = 3,
     top_k: int = 5,
+    retriever_type: str = "keyword",
     include_prompt: bool = False,
 ) -> StructuredPreparationPlanResult:
     """Generate and validate a structured JSON preparation plan."""
@@ -62,7 +63,8 @@ def generate_structured_preparation_plan(
     clean_goal = user_goal.strip()
     search_query = query.strip() or clean_goal
 
-    results = search_knowledge_chunks(
+    retriever = get_retriever(retriever_type)
+    results = retriever.retrieve(
         db_path=db_path,
         query=search_query,
         top_k=top_k,

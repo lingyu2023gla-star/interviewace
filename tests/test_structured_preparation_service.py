@@ -7,7 +7,7 @@ import json
 import pytest
 
 from knowledge.repository import upsert_knowledge_chunks
-from knowledge.schemas import KnowledgeChunk
+from knowledge.schemas import KnowledgeChunk, KnowledgeSearchResult
 from preparation.structured_parser import StructuredOutputParseError
 from preparation.structured_service import generate_structured_preparation_plan
 
@@ -203,3 +203,80 @@ def test_generate_structured_preparation_plan_invalid_params(tmp_path, kwargs) -
 
     with pytest.raises(ValueError):
         generate_structured_preparation_plan(**params)
+
+
+def test_generate_structured_preparation_plan_default_retriever_type_is_keyword(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "structured.db")
+    captured = {}
+
+    class FakeRetriever:
+        def retrieve(self, **kwargs):
+            captured["retrieve_kwargs"] = kwargs
+            return [
+                KnowledgeSearchResult(
+                    chunk_id=1,
+                    source_type="turn_feedback",
+                    source_id="turn:1:feedback",
+                    title="Agent 架构复盘",
+                    content="候选人讲到了 Orchestrator。",
+                    snippet="候选人讲到了 Orchestrator。",
+                )
+            ]
+
+    def fake_get_retriever(retriever_type: str = "keyword"):
+        captured["retriever_type"] = retriever_type
+        return FakeRetriever()
+
+    monkeypatch.setattr("preparation.structured_service.get_retriever", fake_get_retriever)
+    monkeypatch.setattr(
+        "preparation.structured_service.generate_text",
+        lambda prompt: _valid_llm_json(),
+    )
+
+    result = generate_structured_preparation_plan(
+        db_path=db_path,
+        user_goal="准备 Agent/RAG 应用工程师面试",
+    )
+
+    assert captured["retriever_type"] == "keyword"
+    assert captured["retrieve_kwargs"]["query"] == "准备 Agent/RAG 应用工程师面试"
+    assert result.used_evidence_count == 1
+
+
+def test_generate_structured_preparation_plan_uses_opt_in_embedding_retriever(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "structured.db")
+    captured = {}
+
+    class FakeRetriever:
+        def retrieve(self, **kwargs):
+            captured["retrieve_kwargs"] = kwargs
+            return []
+
+    def fake_get_retriever(retriever_type: str = "keyword"):
+        captured["retriever_type"] = retriever_type
+        return FakeRetriever()
+
+    monkeypatch.setattr("preparation.structured_service.get_retriever", fake_get_retriever)
+    monkeypatch.setattr(
+        "preparation.structured_service.generate_text",
+        lambda prompt: _valid_llm_json(insufficient=True),
+    )
+
+    result = generate_structured_preparation_plan(
+        db_path=db_path,
+        user_goal="准备 Agent/RAG 应用工程师面试",
+        query="Agent",
+        retriever_type="embedding",
+        top_k=4,
+    )
+
+    assert captured["retriever_type"] == "embedding"
+    assert captured["retrieve_kwargs"]["query"] == "Agent"
+    assert captured["retrieve_kwargs"]["top_k"] == 4
+    assert result.used_evidence_count == 0
