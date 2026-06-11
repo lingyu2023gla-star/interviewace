@@ -13,7 +13,18 @@ The embedding store saves one active vector representation for each knowledge ch
 
 This is data structure work only. Vector search is planned for V9.3.
 
-## 2. Table Schema
+## 2. Why SQLite chunk_embeddings
+
+SQLite is the right V9.2 storage target because the current project already uses SQLite for `sessions`, `turns`, `questions`, `knowledge_chunks`, and `task_records`.
+
+This keeps the MVP local-first and easy to test:
+
+- no external vector database is required;
+- no Docker / Redis / network dependency is added to default tests;
+- embedding records stay close to `knowledge_chunks`;
+- future migration to a vector backend remains possible after the retrieval behavior is proven.
+
+## 3. Table Schema
 
 ```sql
 CREATE TABLE IF NOT EXISTS chunk_embeddings (
@@ -27,13 +38,13 @@ CREATE TABLE IF NOT EXISTS chunk_embeddings (
 );
 ```
 
-## 3. Relationship To knowledge_chunks
+## 4. Relationship To knowledge_chunks
 
 `chunk_id` corresponds to `knowledge_chunks.id`.
 
 The table currently keeps one active embedding per chunk. It does not enforce a foreign key so existing SQLite tests and local MVP databases remain simple and backward-compatible.
 
-## 4. Field Notes
+## 5. Field Notes
 
 - `embedding_json`: JSON-encoded `list[float]`.
 - `embedding_model`: model name, for example `fake-embedding-v1` or `text-embedding-3-small`.
@@ -41,7 +52,7 @@ The table currently keeps one active embedding per chunk. It does not enforce a 
 - `content_hash`: copied from `knowledge_chunks.content_hash` so the system can detect whether a chunk needs to be re-embedded.
 - `created_at` / `updated_at`: UTC ISO timestamp strings.
 
-## 5. Staleness Check
+## 6. Staleness Check
 
 `is_chunk_embedding_stale(...)` returns `True` when:
 
@@ -51,7 +62,7 @@ The table currently keeps one active embedding per chunk. It does not enforce a 
 
 If `content_hash` is `None`, the check only verifies existence and optional model match.
 
-## 6. Current Limits
+## 7. Current Limits
 
 - No real embedding provider is implemented.
 - No OpenAI / DeepSeek / local embedding model is called.
@@ -60,7 +71,7 @@ If `content_hash` is `None`, the check only verifies existence and optional mode
 - No NumPy dependency is required.
 - The existing `search_knowledge_chunks` keyword / FTS path is unchanged.
 
-## 7. Testing
+## 8. Testing
 
 Default tests use temporary SQLite databases only:
 
@@ -70,7 +81,7 @@ Default tests use temporary SQLite databases only:
 
 The tests do not require network, Redis, Docker, Celery worker, real LLM calls, or a real embedding API.
 
-## 8. Next Step
+## 9. Next Step
 
 V9.3 can build `EmbeddingRetriever` on top of this table:
 

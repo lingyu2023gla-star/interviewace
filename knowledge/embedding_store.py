@@ -58,6 +58,18 @@ def _normalize_embedding(embedding: list[float]) -> list[float]:
     return normalized
 
 
+def _validate_chunk_id(chunk_id: int) -> None:
+    """Validate that chunk_id is a positive integer."""
+    if isinstance(chunk_id, bool) or not isinstance(chunk_id, int) or chunk_id <= 0:
+        raise ValueError("chunk_id must be a positive integer")
+
+
+def _validate_embedding_model(embedding_model: str) -> None:
+    """Validate that embedding_model is not empty."""
+    if not embedding_model or not embedding_model.strip():
+        raise ValueError("embedding_model must not be empty")
+
+
 def _row_to_record(row: sqlite3.Row) -> EmbeddingRecord:
     """Convert a chunk_embeddings row to an EmbeddingRecord."""
     try:
@@ -113,9 +125,9 @@ def upsert_chunk_embedding(
     content_hash: str | None = None,
 ) -> EmbeddingRecord:
     """Insert or update the active embedding for a knowledge chunk."""
+    _validate_chunk_id(chunk_id)
+    _validate_embedding_model(embedding_model)
     normalized = _normalize_embedding(embedding)
-    if not embedding_model:
-        raise ValueError("embedding_model must not be empty")
 
     init_chunk_embeddings_table(db_path)
     now = _now_text()
@@ -170,6 +182,7 @@ def upsert_chunk_embedding(
 
 def get_chunk_embedding(db_path: str, chunk_id: int) -> EmbeddingRecord | None:
     """Return the embedding record for a chunk, or None when missing."""
+    _validate_chunk_id(chunk_id)
     init_chunk_embeddings_table(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
@@ -198,7 +211,7 @@ def list_chunk_embeddings(
     limit_sql = ""
     if limit is not None:
         if limit <= 0:
-            return []
+            raise ValueError("limit must be a positive integer")
         limit_sql = "LIMIT ?"
         params.append(limit)
 
@@ -212,6 +225,7 @@ def list_chunk_embeddings(
 
 def delete_chunk_embedding(db_path: str, chunk_id: int) -> bool:
     """Delete one chunk embedding and return whether a row was removed."""
+    _validate_chunk_id(chunk_id)
     init_chunk_embeddings_table(db_path)
     with _connect(db_path) as conn:
         cursor = conn.execute(
@@ -228,6 +242,7 @@ def is_chunk_embedding_stale(
     embedding_model: str | None = None,
 ) -> bool:
     """Return True when a chunk embedding is missing or no longer current."""
+    _validate_chunk_id(chunk_id)
     record = get_chunk_embedding(db_path, chunk_id)
     if record is None:
         return True

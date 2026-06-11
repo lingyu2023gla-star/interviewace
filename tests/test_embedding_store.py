@@ -59,6 +59,11 @@ def test_get_chunk_embedding_reads_record(tmp_path) -> None:
     assert record is not None
     assert record.chunk_id == 1
     assert record.embedding == [1.0, 2.0, 3.0]
+
+
+def test_get_chunk_embedding_missing_record_returns_none(tmp_path) -> None:
+    db_path = str(tmp_path / "embeddings.db")
+
     assert get_chunk_embedding(db_path, 999) is None
 
 
@@ -110,6 +115,22 @@ def test_upsert_chunk_embedding_non_numeric_embedding_raises(tmp_path, embedding
         upsert_chunk_embedding(db_path, 1, embedding, "fake-embedding-v1")
 
 
+@pytest.mark.parametrize("chunk_id", [0, -1, True, "1"])
+def test_upsert_chunk_embedding_invalid_chunk_id_raises(tmp_path, chunk_id) -> None:
+    db_path = str(tmp_path / "embeddings.db")
+
+    with pytest.raises(ValueError, match="chunk_id must be a positive integer"):
+        upsert_chunk_embedding(db_path, chunk_id, [0.1], "fake-embedding-v1")
+
+
+@pytest.mark.parametrize("embedding_model", ["", "   "])
+def test_upsert_chunk_embedding_empty_model_raises(tmp_path, embedding_model) -> None:
+    db_path = str(tmp_path / "embeddings.db")
+
+    with pytest.raises(ValueError, match="embedding_model must not be empty"):
+        upsert_chunk_embedding(db_path, 1, [0.1], embedding_model)
+
+
 def test_list_chunk_embeddings_returns_multiple_records(tmp_path) -> None:
     db_path = str(tmp_path / "embeddings.db")
     upsert_chunk_embedding(db_path, 2, [0.2], "fake-embedding-v1")
@@ -139,7 +160,14 @@ def test_list_chunk_embeddings_supports_limit(tmp_path) -> None:
     records = list_chunk_embeddings(db_path, limit=2)
 
     assert [record.chunk_id for record in records] == [1, 2]
-    assert list_chunk_embeddings(db_path, limit=0) == []
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_list_chunk_embeddings_invalid_limit_raises(tmp_path, limit) -> None:
+    db_path = str(tmp_path / "embeddings.db")
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        list_chunk_embeddings(db_path, limit=limit)
 
 
 def test_delete_chunk_embedding_existing_record_returns_true(tmp_path) -> None:
@@ -189,6 +217,12 @@ def test_is_chunk_embedding_stale_changed_model_returns_true(tmp_path) -> None:
         )
         is True
     )
+
+
+def test_is_chunk_embedding_stale_ignores_hash_when_content_hash_is_none(tmp_path) -> None:
+    db_path = str(tmp_path / "embeddings.db")
+    upsert_chunk_embedding(db_path, 1, [0.1], "fake-embedding-v1", "hash-a")
+
     assert (
         is_chunk_embedding_stale(
             db_path,
