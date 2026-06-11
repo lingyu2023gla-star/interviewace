@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from knowledge.retrievers.base import BaseRetriever
 from knowledge.retrievers.embedding import EmbeddingRetriever
+from knowledge.retrievers.hybrid import HybridRetriever
 from knowledge.retrievers.keyword import KeywordRetriever
 
 
@@ -14,4 +15,6 @@ def get_retriever(retriever_type: str = "keyword") -> BaseRetriever:
         return KeywordRetriever()
     if normalized == "embedding":
         return EmbeddingRetriever()
-    raise ValueError("Unknown retriever_type. Available retrievers: keyword, fts, embedding")
+    if normalized == "hybrid":
+        return HybridRetriever()
+    raise ValueError("Unknown retriever_type. Available retrievers: keyword, fts, embedding, hybrid")
