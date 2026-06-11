@@ -15,6 +15,7 @@ InterviewAce 是一个 AI 面试复盘与准备系统。项目从讯飞听见导
 - keyword / FTS 检索
 - Evidence Context 构建
 - 基于历史证据的准备计划生成
+- Preparation Plan 结构化 JSON 输出
 - FastAPI API 层
 - Redis / Celery 异步任务化
 
@@ -41,7 +42,7 @@ worker / Celery
 - `core/`：转写解析、DeepSeek 调用、SQLite 基础存储。
 - `prompts/`：Prompt 模板、Prompt Builder、诊断维度配置。
 - `knowledge/`：知识库数据模型、幂等索引、FTS/LIKE 检索、Evidence Context。
-- `preparation/`：面试准备计划 request/result schema 和 service 编排。
+- `preparation/`：面试准备计划 request/result schema、structured schema/parser 和 service 编排。
 - `api/`：FastAPI router、Pydantic schema、依赖注入和 HTTP 响应转换。
 - `worker/`：Celery app、Celery task 和异步执行层。
 - `tests/`：单元测试、API 测试、可选 integration test。
@@ -74,6 +75,12 @@ worker / Celery
 - V6.2：Redis / Celery 本地真实集成验收支持  
   新增 ping task、本地启动脚本、Redis/Celery 集成文档和默认 skip 的 integration test。
 
+- V7.1：Structured Output / JSON Schema  
+  新增 structured preparation plan schema、JSON-only Prompt Builder、JSON parser 和 structured service，不替换旧 Markdown plan。
+
+- V7.2：Structured Output API  
+  新增同步 `POST /api/preparation/structured-plan`，返回结构化 JSON；暂不接 Celery。
+
 ## 4. Core Module Responsibilities
 
 ### core/
@@ -86,7 +93,7 @@ worker / Celery
 
 ### prompts/
 
-负责 Prompt 模板与 Prompt Builder。Prompt Builder 只构造 Prompt，不调用 LLM，不访问数据库。
+负责 Prompt 模板与 Prompt Builder。Prompt Builder 只构造 Prompt，不调用 LLM，不访问数据库。结构化输出 Prompt 必须明确要求只输出 JSON，并保留 evidence-based 防幻觉规则。
 
 ### knowledge/
 
@@ -94,7 +101,7 @@ worker / Celery
 
 ### preparation/
 
-负责面试准备计划 request/result schema 和 service 编排。该层复用 `knowledge.search`、`knowledge.context_builder` 和 `prompts.preparation_plan`，再调用通用 LLM 文本生成函数。
+负责面试准备计划 request/result schema、structured schema/parser 和 service 编排。该层复用 `knowledge.search`、`knowledge.context_builder`、`prompts.preparation_plan` 或 `prompts.structured_preparation_plan`，再调用通用 LLM 文本生成函数。
 
 ### api/
 
@@ -126,6 +133,8 @@ worker / Celery
 10. 不要在脚本或文档中写真实 API key。
 11. 不要随意改数据库 schema。
 12. 保留同步接口 `/api/preparation/plan`，同时提供异步接口 `/api/preparation/plan-tasks`。
+13. 保留旧 Markdown preparation plan 语义；structured plan 是增量能力。
+14. structured plan 当前只有同步 API，不要误接 Celery，除非明确进入 V7.3。
 
 ## 6. API Endpoints
 
@@ -133,6 +142,7 @@ worker / Celery
 - `POST /api/knowledge/search`：检索 `knowledge_chunks`，返回 chunk 来源、snippet 和 score。
 - `POST /api/knowledge/evidence-context`：检索后构建 `[E1]` 格式 Evidence Context，不调用 LLM。
 - `POST /api/preparation/plan`：同步生成基于历史证据的面试准备计划。
+- `POST /api/preparation/structured-plan`：同步生成结构化 JSON 准备计划。
 - `POST /api/preparation/plan-tasks`：提交异步 preparation plan Celery task。
 - `POST /api/tasks/ping`：提交轻量 ping task，用于 Redis / Celery 本地链路验收。
 - `GET /api/tasks/{task_id}`：查询 Celery task 状态和结果。
@@ -159,6 +169,7 @@ GET /api/tasks/{task_id}
 - Redis DB 1 默认作为 result backend：`redis://localhost:6379/1`
 - `system.ping` 用于本地集成验收，不调用 LLM，不访问数据库。
 - `preparation.generate_plan` 会调用真实 LLM，因此不要作为默认自动测试。
+- structured preparation plan 当前未接 Celery 异步任务。
 
 ## 8. Environment Variables
 
@@ -221,6 +232,7 @@ RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_inte
 - `tests/test_celery_redis_integration.py` 默认 skip。
 - API 测试使用 FastAPI `TestClient`。
 - preparation plan API 测试必须 mock LLM。
+- structured preparation plan API 测试必须 mock structured service，不真实调用 LLM。
 - Celery `delay` / `AsyncResult` 在单元测试中必须 monkeypatch。
 - 真实 Redis + worker 只用于手动集成验收。
 - 测试必须使用临时 SQLite DB，不污染 `data/interviews.db`。
@@ -232,6 +244,7 @@ RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_inte
 - `/api/knowledge/search` 返回 snippet 和 source_id。
 - `/api/knowledge/evidence-context` 返回 `[E1]`。
 - `/api/preparation/plan` 在测试中通过 mock LLM。
+- `/api/preparation/structured-plan` 在测试中通过 mock structured service，返回 `structured_plan` dict。
 - `/api/preparation/plan-tasks` 返回 `202` 和 `task_id`。
 - `/api/tasks/ping` 在真实 Redis 环境下最终 `SUCCESS`。
 - `/api/tasks/{task_id}` 能展示 `PENDING` / `SUCCESS` / `FAILURE`。
@@ -249,6 +262,8 @@ RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_inte
 - 不要把 `data/interviews.db`、`.env`、缓存文件提交。
 - 不要随意改已有数据库 schema。
 - 不要删除同步 preparation 接口。
+- 不要改变旧 Markdown preparation plan API 语义。
+- 不要把 structured preparation plan 接入 Celery，除非明确进入 V7.3。
 - 不要把 integration test 变成默认必跑。
 
 ## 13. Next Roadmap
@@ -257,9 +272,11 @@ RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_inte
 
 - 更新 `README.md`，对外展示项目价值。
 - 增加 `task_records` 表，持久化任务状态和结果。
+- structured preparation plan 异步任务接口。
 - Docker Compose 编排 API / worker / Redis。
 - MySQL 替换 SQLite。
 - Redis 缓存检索结果。
 - 更完整的 RAG：embedding retriever / rerank / citations。
 - 更完整的评测系统：golden case、LLM 输出结构化、自动评分。
+- 将 Structured Output 扩展到 full-context analysis、summary 和 scoring。
 - UI 接入异步任务状态。

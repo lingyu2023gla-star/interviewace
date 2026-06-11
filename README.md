@@ -1,6 +1,6 @@
 # InterviewAce
 
-InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文本中进行结构化复盘、能力诊断、知识库沉淀、证据检索、基于历史证据的准备计划生成，并通过 FastAPI + Celery/Redis 提供服务化能力。
+InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文本中进行结构化复盘、能力诊断、知识库沉淀、证据检索、基于历史证据的准备计划生成，并通过 FastAPI + Celery/Redis 提供服务化能力。准备计划目前同时支持 Markdown 输出和结构化 JSON 输出。
 
 ## 1. 项目背景
 
@@ -20,7 +20,8 @@ InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文
 - 面试知识库 `knowledge_chunks`，支持可追溯、幂等写入。
 - keyword / SQLite FTS 检索，并在 FTS 不可用时降级到 LIKE 检索。
 - Evidence Context 构建，使用 `[E1]` / `[E2]` 证据编号约束后续判断。
-- 基于历史证据生成面试准备计划。
+- 基于历史证据生成面试准备计划，支持 Markdown 阅读版和结构化 JSON 版。
+- Structured Output / JSON Schema 第一阶段：Preparation Plan 结构化 schema、parser、service 和同步 API。
 - FastAPI 接口服务，暴露检索、证据上下文和准备计划能力。
 - Redis / Celery 异步任务接口，支持任务提交、状态查询和本地 ping 验收。
 - 本地可选 Redis + Celery worker 集成验收。
@@ -88,6 +89,8 @@ docs/                 补充文档
 | V5 | FastAPI API | 暴露 search / evidence-context / preparation plan API。 |
 | V6.1 | Celery Task API | 新增异步任务提交和任务状态查询接口。 |
 | V6.2 | Redis / Celery Integration | 新增 ping task、本地 worker 验收脚本和可选 integration test。 |
+| V7.1 | Structured Preparation Plan | 新增结构化准备计划 Pydantic schema、JSON-only Prompt Builder、parser 和 service。 |
+| V7.2 | Structured Output API | 新增同步 `POST /api/preparation/structured-plan`，返回结构化 JSON。 |
 
 ## 6. 快速开始
 
@@ -162,6 +165,7 @@ http://127.0.0.1:8000/docs
 | POST | `/api/knowledge/search` | 知识库检索 |
 | POST | `/api/knowledge/evidence-context` | 构建 Evidence Context |
 | POST | `/api/preparation/plan` | 同步生成准备计划 |
+| POST | `/api/preparation/structured-plan` | 同步生成结构化 JSON 准备计划 |
 | POST | `/api/preparation/plan-tasks` | 异步提交准备计划任务 |
 | POST | `/api/tasks/ping` | 提交 Celery ping task |
 | GET | `/api/tasks/{task_id}` | 查询任务状态 |
@@ -203,6 +207,25 @@ curl -s http://127.0.0.1:8000/api/tasks/<task_id> | python -m json.tool
 ```
 
 实际使用时不要带尖括号，替换为真实 `task_id`。
+
+### Structured Preparation Plan
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/preparation/structured-plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_goal": "准备 Agent/RAG 应用工程师面试",
+    "job_direction": "大模型应用工程师",
+    "query": "Agent RAG",
+    "plan_days": 7,
+    "daily_minutes": 60,
+    "max_tasks_per_day": 3,
+    "top_k": 5,
+    "include_prompt": false
+  }' | python -m json.tool
+```
+
+该接口返回 `structured_plan` dict、`raw_output`、`evidence_context` 和 `used_evidence_count`。它是同步接口；结构化异步任务尚未接入 Celery。
 
 ## 11. Redis / Celery 本地集成
 
@@ -311,6 +334,8 @@ DEEPSEEK_API_KEY
 
 - 当前知识库检索以 keyword / FTS 为主，尚未接入 embedding retriever。
 - 当前没有实现模型微调。
+- 当前 Structured Output 先支持 preparation plan，其他复盘报告仍以 Markdown 为主。
+- 当前结构化准备计划只提供同步 API，尚未提供 Celery 异步 structured task。
 - 当前异步任务结果主要依赖 Redis result backend，尚未落库持久化。
 - 当前未实现任务取消 / revoke。
 - 当前 SQLite 更适合本地和 MVP，生产环境可迁移到 MySQL / PostgreSQL。
@@ -319,6 +344,7 @@ DEEPSEEK_API_KEY
 ## 16. Roadmap
 
 - README 配套截图或接口示例图。
+- Structured preparation plan 异步任务接口。
 - Docker Compose 编排 API / worker / redis。
 - `task_records` 表，持久化任务状态和结果。
 - MySQL / PostgreSQL 数据库迁移。
@@ -327,7 +353,7 @@ DEEPSEEK_API_KEY
 - 面试准备计划 UI 接入。
 - 异步任务状态前端轮询。
 - Prompt evaluation golden cases 增强。
-- JSON Schema 结构化 LLM 输出。
+- 将 Structured Output 扩展到 full-context analysis、summary 和 scoring。
 
 ## 17. 项目协作指南
 

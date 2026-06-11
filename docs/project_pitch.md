@@ -4,7 +4,7 @@
 
 InterviewAce 是一个 AI 面试复盘与准备系统。它可以从面试转写文本中提取问题与回答，进行结构化复盘、能力诊断、知识库沉淀，并基于历史面试证据生成下一次面试准备计划。
 
-这个项目最初是一个 Streamlit MVP，后来逐步演进为包含 Agent 链路、knowledge_chunks 知识库、Evidence Context、FastAPI 接口和 Redis/Celery 异步任务的后端大模型应用。
+这个项目最初是一个 Streamlit MVP，后来逐步演进为包含 Agent 链路、knowledge_chunks 知识库、Evidence Context、FastAPI 接口、Redis/Celery 异步任务和结构化 JSON 输出的后端大模型应用。
 
 ## 2. 项目背景与问题
 
@@ -42,6 +42,8 @@ keyword / FTS 检索
 构建 Evidence Context：[E1] / [E2]
   ↓
 生成基于历史证据的准备计划
+  ↓
+结构化 JSON 输出 / Markdown 输出
   ↓
 FastAPI / Celery 异步任务对外提供能力
 ```
@@ -92,13 +94,29 @@ FastAPI / Celery 异步任务对外提供能力
 
 这里的关键是区分“已有证据支持”和“需要下次主动展示”。例如 RAG 如果只是规划中，就不能写成已经完整实现；微调如果没有落地，也不能包装成项目经验。
 
-### 4.5 FastAPI 服务化
+### 4.5 Structured Output / JSON Schema
+
+在 V7 阶段，我为 preparation plan 增加了结构化 JSON 输出能力，但没有替换旧的 Markdown 输出。
+
+具体做法是：
+
+- 定义 `StructuredPreparationPlan` Pydantic schema，包含 summary、evidence_based_judgments、daily_plan、question_templates、abilities_to_show、risk_warnings 和 metadata。
+- 新增 JSON-only Prompt Builder，要求模型只输出 JSON，不输出 Markdown 或额外解释。
+- 新增 parser，支持纯 JSON、Markdown fenced JSON 和前后带文本的 JSON 提取。
+- 使用 Pydantic 校验模型输出，非法 JSON 或缺少字段时抛出明确错误。
+- 新增同步 API `/api/preparation/structured-plan`，返回可被前端直接渲染和后续持久化的结构化结果。
+
+这个能力的价值是让准备计划从“可读 Markdown”进一步变成“可展示、可测试、可存储、可统计”的结构化数据。当前结构化输出先支持 preparation plan，尚未覆盖所有复盘报告，也还没有接入 Celery 异步任务。
+
+### 4.6 FastAPI 服务化
 
 我把知识检索、Evidence Context 和准备计划能力封装成 FastAPI 接口。
 
 API 层保持薄封装，只做请求校验、service 调用和响应转换，不写 SQL、不拼 Prompt、不直接调用 LLM client。请求参数用 Pydantic 校验，非法输入返回 422，并通过 `/docs` 自动生成 OpenAPI 文档。
 
-### 4.6 Redis / Celery 异步任务
+结构化准备计划 API 也遵循同样原则：router 只调用 structured service，并把 Pydantic model 转成 dict 返回，不复制 search、evidence、prompt 或 LLM 逻辑。
+
+### 4.7 Redis / Celery 异步任务
 
 准备计划生成会调用 LLM，耗时和稳定性都不适合一直阻塞 HTTP 请求。所以我新增了 Celery 异步任务层：
 
@@ -183,6 +201,7 @@ docs/           项目文档
 单元测试覆盖：
 
 - Prompt builder。
+- structured output schema / parser。
 - knowledge repository。
 - keyword / FTS search。
 - evidence context builder。
@@ -197,6 +216,7 @@ API 测试使用 FastAPI `TestClient`，覆盖：
 - knowledge search。
 - evidence context。
 - preparation plan。
+- structured preparation plan。
 - task submit。
 - task status。
 
@@ -231,6 +251,7 @@ GET  /api/health
 POST /api/knowledge/search
 POST /api/knowledge/evidence-context
 POST /api/preparation/plan
+POST /api/preparation/structured-plan
 POST /api/preparation/plan-tasks
 POST /api/tasks/ping
 GET  /api/tasks/{task_id}
@@ -239,6 +260,7 @@ GET  /api/tasks/{task_id}
 - `search`：检索历史知识库，返回 chunk 来源、snippet 和 score。
 - `evidence-context`：返回 `[E1]` 格式证据上下文，不调用 LLM。
 - `preparation/plan`：同步生成准备计划。
+- `preparation/structured-plan`：同步生成结构化 JSON 准备计划。
 - `preparation/plan-tasks`：异步提交准备计划任务。
 - `tasks/{task_id}`：查询 Celery 任务状态和结果。
 - `tasks/ping`：验证 Redis/Celery 链路。
@@ -251,6 +273,7 @@ GET  /api/tasks/{task_id}
 - 有“未验证能力不误判”的评价逻辑。
 - 有 FastAPI 服务化能力。
 - 有 Redis / Celery 异步任务化能力。
+- 有结构化输出能力，便于前端展示、自动测试和后续持久化。
 - 有完整测试策略，默认测试不依赖真实外部服务。
 - 架构分层清晰，API / service / knowledge / worker 职责分离。
 - 能同时体现大模型应用算法能力和 Python 后端工程能力。
@@ -260,7 +283,8 @@ GET  /api/tasks/{task_id}
 - 当前检索主要是 keyword / FTS，还没有接 embedding retriever。
 - 当前没有实现 rerank。
 - 当前没有做模型微调。
-- 当前 LLM 输出主要还是 Markdown，后续可做 JSON Schema 结构化输出。
+- 当前 Structured Output 先支持 preparation plan，full-context analysis、summary 等仍主要是 Markdown。
+- 当前 structured preparation plan 只有同步 API，尚未接入 Celery 异步任务。
 - 当前异步任务结果主要依赖 Redis result backend，尚未持久化到 `task_records` 表。
 - 当前 SQLite 更适合 MVP、本地开发和演示，生产环境可迁移 MySQL / PostgreSQL。
 - 当前没有完整用户系统和权限控制。
@@ -268,21 +292,22 @@ GET  /api/tasks/{task_id}
 
 ## 12. 后续规划
 
-1. Structured Output / JSON Schema。
-2. `task_records` 持久化。
-3. Docker Compose 编排 API / worker / Redis。
-4. MySQL / PostgreSQL 替换 SQLite。
-5. Embedding retriever + hybrid retrieval。
-6. Rerank。
-7. 更完整的 citations。
-8. UI 接入异步任务状态。
-9. Prompt evaluation golden cases 增强。
-10. 面试准备计划长期追踪。
+1. 将 Structured Output 扩展到 full-context analysis、summary 和 scoring。
+2. structured preparation plan 接入 Celery 异步任务。
+3. `task_records` 持久化。
+4. Docker Compose 编排 API / worker / Redis。
+5. MySQL / PostgreSQL 替换 SQLite。
+6. Embedding retriever + hybrid retrieval。
+7. Rerank。
+8. 更完整的 citations。
+9. UI 接入异步任务状态。
+10. Prompt evaluation golden cases 增强。
+11. 面试准备计划长期追踪。
 
 ## 13. 面试回答模板
 
-我做的 InterviewAce 是一个 AI 面试复盘与准备系统，最初是 Streamlit MVP，后来我把它逐步演进成了带知识库、证据检索、FastAPI 接口和 Celery 异步任务的后端大模型应用。
+我做的 InterviewAce 是一个 AI 面试复盘与准备系统，最初是 Streamlit MVP，后来我把它逐步演进成了带知识库、证据检索、FastAPI 接口、Celery 异步任务和结构化输出的后端大模型应用。
 
-核心流程是先解析面试转写，生成结构化复盘，再把复盘结果沉淀成 `knowledge_chunks`。后续准备面试时，系统会通过 keyword / FTS 检索历史知识库，构建 `[E1]`、`[E2]` 这样的 Evidence Context，再让模型基于这些历史证据生成下一次准备计划。
+核心流程是先解析面试转写，生成结构化复盘，再把复盘结果沉淀成 `knowledge_chunks`。后续准备面试时，系统会通过 keyword / FTS 检索历史知识库，构建 `[E1]`、`[E2]` 这样的 Evidence Context，再让模型基于这些历史证据生成下一次准备计划。准备计划既保留 Markdown 阅读版，也新增了 Pydantic schema 校验后的结构化 JSON 版本，方便前端展示、自动测试和后续持久化。
 
 为了减少幻觉，我在 Prompt 里要求所有历史表现判断必须引用证据编号；如果证据不足，就明确写“历史证据不足”，不能把规划中的能力包装成已完成能力。工程上我用 FastAPI 暴露检索和准备计划接口，用 Celery/Redis 把 LLM 长任务异步化，并通过 mock LLM、mock Celery 和可选 Redis integration test 保证默认测试稳定。

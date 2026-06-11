@@ -80,6 +80,28 @@ class PreparationPlanApiResponse(BaseModel):
     prompt: str | None = None
 
 
+class StructuredPreparationPlanApiRequest(BaseModel):
+    user_goal: str = Field(..., min_length=1)
+    job_direction: str = ""
+    query: str = ""
+    plan_days: int = Field(default=7, ge=1, le=30)
+    daily_minutes: int = Field(default=60, ge=10, le=240)
+    max_tasks_per_day: int = Field(default=3, ge=1, le=8)
+    top_k: int = Field(default=5, ge=1, le=20)
+    include_prompt: bool = False
+
+
+class StructuredPreparationPlanApiResponse(BaseModel):
+    user_goal: str
+    job_direction: str
+    query: str
+    structured_plan: dict[str, Any]
+    raw_output: str
+    evidence_context: str
+    used_evidence_count: int
+    prompt: str | None = None
+
+
 class TaskSubmitResponse(BaseModel):
     task_id: str
     status: str

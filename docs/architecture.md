@@ -2,9 +2,9 @@
 
 ## 1. Architecture Overview
 
-InterviewAce 从 Streamlit MVP 演进为支持知识库检索、Evidence Context、FastAPI API 和 Celery 异步任务的 AI 面试复盘与准备系统。
+InterviewAce 从 Streamlit MVP 演进为支持知识库检索、Evidence Context、Structured Output、FastAPI API 和 Celery 异步任务的 AI 面试复盘与准备系统。
 
-当前架构分为 UI 层、核心分析层、知识库层、准备计划层、API 层、异步任务层和测试层。系统重点不是简单调用 LLM，而是把“面试转写 -> 复盘分析 -> 知识沉淀 -> 证据检索 -> 准备计划”串成可测试、可服务化的闭环。
+当前架构分为 UI 层、核心分析层、知识库层、准备计划层、结构化输出层、API 层、异步任务层和测试层。系统重点不是简单调用 LLM，而是把“面试转写 -> 复盘分析 -> 知识沉淀 -> 证据检索 -> 准备计划 -> 结构化输出”串成可测试、可服务化的闭环。
 
 ## 2. Overall System Architecture
 
@@ -29,10 +29,12 @@ flowchart TD
     Prompts --> Prep
 
     Prep --> LLM["LLM Provider<br/>DeepSeek / OpenAI-compatible API"]
+    Prep --> Structured["Structured Output<br/>Pydantic schema / JSON parser"]
 
     API["FastAPI API<br/>api/"] --> Search
     API --> Evidence
     API --> Prep
+    API --> Structured
 
     API --> CelerySubmit["Submit Async Task<br/>/api/preparation/plan-tasks"]
     CelerySubmit --> RedisBroker["Redis Broker<br/>DB 0"]
@@ -48,7 +50,8 @@ flowchart TD
 - Streamlit 是原始 MVP UI，用于本地上传转写和查看复盘结果。
 - FastAPI 是服务化接口层，对外提供检索、证据上下文、准备计划和任务状态接口。
 - `knowledge/` 负责历史复盘知识沉淀、幂等索引和 keyword / FTS 检索。
-- `preparation/` 负责基于 evidence 生成准备计划。
+- `preparation/` 负责基于 evidence 生成 Markdown 准备计划和结构化 JSON 准备计划。
+- Structured Output 当前先覆盖 preparation plan，尚未覆盖所有复盘报告。
 - `worker/` 负责异步执行长耗时 LLM 任务。
 - Redis DB 0 默认作为 broker，Redis DB 1 默认作为 result backend。
 
@@ -134,7 +137,39 @@ sequenceDiagram
 - Prompt Builder 只构造 Prompt，不调用 LLM。
 - Search / Evidence / Prompt 逻辑不复制到 API 层。
 
-## 6. FastAPI Layer
+## 6. Structured Preparation Plan Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Service as Structured Preparation Service
+    participant Search as Knowledge Search
+    participant Evidence as Evidence Context Builder
+    participant Prompt as Structured Prompt Builder
+    participant LLM as LLM Provider
+    participant Parser as JSON Parser / Pydantic Schema
+
+    Client->>Service: user_goal / job_direction / query
+    Service->>Search: search_knowledge_chunks(query, top_k)
+    Search-->>Service: KnowledgeSearchResult[]
+    Service->>Evidence: build_evidence_context(results)
+    Evidence-->>Service: evidence_context with [E1]/[E2]
+    Service->>Prompt: build_structured_preparation_plan_prompt(...)
+    Prompt-->>Service: JSON-only prompt
+    Service->>LLM: generate_text(prompt)
+    LLM-->>Service: raw JSON text
+    Service->>Parser: parse_structured_preparation_plan(raw_output)
+    Parser-->>Service: StructuredPreparationPlan
+    Service-->>Client: StructuredPreparationPlanResult
+```
+
+说明：
+
+- Parser 支持纯 JSON、Markdown fenced JSON 和前后带文本的 JSON 提取。
+- Pydantic schema 校验顶层字段和嵌套结构。
+- 当前 structured service 不写数据库，不接 Celery。
+
+## 7. FastAPI Layer
 
 ```mermaid
 flowchart LR
@@ -144,6 +179,7 @@ flowchart LR
     API --> SearchAPI["POST /api/knowledge/search"]
     API --> EvidenceAPI["POST /api/knowledge/evidence-context"]
     API --> PlanAPI["POST /api/preparation/plan"]
+    API --> StructuredPlanAPI["POST /api/preparation/structured-plan"]
     API --> PlanTaskAPI["POST /api/preparation/plan-tasks"]
     API --> PingAPI["POST /api/tasks/ping"]
     API --> StatusAPI["GET /api/tasks/{task_id}"]
@@ -151,6 +187,7 @@ flowchart LR
     SearchAPI --> Search["knowledge/search.py"]
     EvidenceAPI --> Context["knowledge/context_builder.py"]
     PlanAPI --> Prep["preparation/service.py"]
+    StructuredPlanAPI --> StructuredPrep["preparation/structured_service.py"]
     PlanTaskAPI --> Celery["Celery Task Queue"]
     PingAPI --> Celery
     StatusAPI --> ResultBackend["Redis Result Backend"]
@@ -162,8 +199,9 @@ flowchart LR
 - Router 不写 SQL。
 - Router 不拼 Prompt。
 - Router 不直接初始化 LLM client。
+- `structured-plan` 是同步接口，当前没有 `structured-plan-tasks`。
 
-## 7. Celery / Redis Async Task Flow
+## 8. Celery / Redis Async Task Flow
 
 ```mermaid
 sequenceDiagram
@@ -216,9 +254,10 @@ sequenceDiagram
 
 - `system.ping` 用于验证 Redis -> Worker -> Result Backend，不调用 LLM。
 - `preparation.generate_plan` 会调用真实 LLM，不作为默认自动测试。
+- 结构化准备计划当前尚未接入 Celery 异步任务。
 - 默认 pytest 不依赖 Redis。
 
-## 8. Module Responsibility Map
+## 9. Module Responsibility Map
 
 | Module | Responsibility |
 |---|---|
@@ -227,25 +266,27 @@ sequenceDiagram
 | `agent/` | Agent orchestrator and tool chain |
 | `prompts/` | Prompt templates and prompt builders |
 | `knowledge/` | `knowledge_chunks`, repository, search, evidence context |
-| `preparation/` | Preparation request/result schema and service orchestration |
+| `preparation/` | Preparation request/result schema, structured schema/parser, and service orchestration |
 | `api/` | FastAPI routers, Pydantic schemas, HTTP response conversion |
 | `worker/` | Celery app and async task execution |
 | `tests/` | Unit tests, API tests, optional integration tests |
 | `scripts/` | Local startup scripts |
 | `docs/` | Project documentation |
 
-## 9. Testing Architecture
+## 10. Testing Architecture
 
 ```mermaid
 flowchart TD
     T["pytest tests/"] --> Unit["Unit Tests"]
     T --> API["API Tests<br/>FastAPI TestClient"]
     T --> Prompt["Prompt Builder Tests"]
+    T --> Structured["Structured Output Tests"]
     T --> Worker["Worker Task Tests"]
     T --> Optional["Optional Integration Tests"]
 
     Unit --> MockLLM["Mock LLM<br/>no real API call"]
     API --> MockCelery["Mock Celery delay / AsyncResult"]
+    Structured --> MockStructuredLLM["Mock structured LLM output"]
     Worker --> MockService["Mock preparation service"]
     Optional --> Redis["Real Redis + Celery Worker<br/>RUN_CELERY_INTEGRATION=1"]
 
@@ -259,27 +300,29 @@ flowchart TD
 - Integration test 默认 skip。
 - 真实 Redis + worker 验证通过 `system.ping` 完成。
 
-## 10. Current Limitations
+## 11. Current Limitations
 
 - 当前 RAG 主要是 keyword / SQLite FTS，不是 embedding retriever。
 - 当前未实现 rerank。
 - 当前未实现模型微调。
-- 当前 LLM 输出主要是 Markdown，后续可做 JSON Schema 结构化输出。
+- 当前 Structured Output 先支持 preparation plan，其他复盘报告仍主要是 Markdown。
+- 当前 structured preparation plan 只有同步 API，尚未接入 Celery 异步任务。
 - 当前异步任务结果主要依赖 Redis result backend，尚未持久化到 `task_records` 表。
 - 当前 SQLite 适合 MVP 和本地演示，生产可迁移 MySQL / PostgreSQL。
 - 当前没有完整用户系统和权限控制。
 
-## 11. Roadmap Architecture
+## 12. Roadmap Architecture
 
 这部分是后续架构方向，不代表当前已经实现。
 
 ```mermaid
 flowchart TD
-    A["Current System"] --> B["Structured Output<br/>JSON Schema"]
-    B --> C["Task Records<br/>Persist async results"]
-    C --> D["Docker Compose<br/>api / worker / redis"]
-    D --> E["Database Migration<br/>MySQL / PostgreSQL"]
-    E --> F["Embedding Retriever<br/>Hybrid Retrieval"]
-    F --> G["Rerank + Stronger Citations"]
-    G --> H["Frontend Async Task UI"]
+    A["Current System"] --> B["Structured Output Expansion<br/>analysis / summary / scoring"]
+    B --> C["Structured Async Task<br/>structured-plan-tasks"]
+    C --> D["Task Records<br/>Persist async results"]
+    D --> E["Docker Compose<br/>api / worker / redis"]
+    E --> F["Database Migration<br/>MySQL / PostgreSQL"]
+    F --> G["Embedding Retriever<br/>Hybrid Retrieval"]
+    G --> H["Rerank + Stronger Citations"]
+    H --> I["Frontend Async Task UI"]
 ```
