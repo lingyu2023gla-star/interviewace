@@ -24,9 +24,10 @@ InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文
 - Structured Output / JSON Schema 第一阶段：Preparation Plan 结构化 schema、parser、service 和同步 API。
 - FastAPI 接口服务，暴露检索、证据上下文和准备计划能力。
 - Redis / Celery 异步任务接口，支持任务提交、状态查询和本地 ping 验收。
+- SQLite `task_records` 持久化异步任务请求、状态、结果和失败原因。
 - 本地可选 Redis + Celery worker 集成验收。
 
-当前没有实现 embedding 向量库、rerank 或模型微调；知识库检索以 keyword / FTS 为主。
+当前没有实现 embedding 检索、向量数据库、rerank 或模型微调；知识库检索以 keyword / FTS 为主。V9.1 已新增 retriever 抽象层，详见 [docs/retrievers.md](docs/retrievers.md)；V9.2 已新增 SQLite embedding store 数据结构，详见 [docs/embedding_store.md](docs/embedding_store.md)。
 
 ## 3. 技术栈
 
@@ -91,6 +92,8 @@ docs/                 补充文档
 | V6.2 | Redis / Celery Integration | 新增 ping task、本地 worker 验收脚本和可选 integration test。 |
 | V7.1 | Structured Preparation Plan | 新增结构化准备计划 Pydantic schema、JSON-only Prompt Builder、parser 和 service。 |
 | V7.2 | Structured Output API | 新增同步 `POST /api/preparation/structured-plan`，返回结构化 JSON。 |
+| V8.2 | Task Records | 新增 SQLite `task_records`，持久化异步任务状态、请求、结果和错误。 |
+| V8.3 | Docker Compose Dev Stack | 新增本地 API / worker / Redis Compose 栈。 |
 
 ## 6. 快速开始
 
@@ -167,6 +170,7 @@ http://127.0.0.1:8000/docs
 | POST | `/api/preparation/plan` | 同步生成准备计划 |
 | POST | `/api/preparation/structured-plan` | 同步生成结构化 JSON 准备计划 |
 | POST | `/api/preparation/plan-tasks` | 异步提交准备计划任务 |
+| POST | `/api/preparation/structured-plan-tasks` | 异步提交结构化准备计划任务 |
 | POST | `/api/tasks/ping` | 提交 Celery ping task |
 | GET | `/api/tasks/{task_id}` | 查询任务状态 |
 
@@ -225,7 +229,7 @@ curl -s -X POST http://127.0.0.1:8000/api/preparation/structured-plan \
   }' | python -m json.tool
 ```
 
-该接口返回 `structured_plan` dict、`raw_output`、`evidence_context` 和 `used_evidence_count`。它是同步接口；结构化异步任务尚未接入 Celery。
+该接口返回 `structured_plan` dict、`raw_output`、`evidence_context` 和 `used_evidence_count`。结构化准备计划也支持异步提交：`POST /api/preparation/structured-plan-tasks`。
 
 ## 11. Redis / Celery 本地集成
 
@@ -296,7 +300,25 @@ curl -s http://127.0.0.1:8000/api/tasks/<task_id> | python -m json.tool
 
 更完整的本地 Redis / Celery 验收说明见 [docs/celery_redis_local.md](docs/celery_redis_local.md)。
 
-## 12. 可选集成测试
+异步任务会同时写入 SQLite `task_records`，用于长期保存请求、状态、结果和失败原因；详见 [docs/task_records.md](docs/task_records.md)。
+
+## 12. Docker Compose 本地开发栈
+
+可以用 Docker Compose 一次启动 FastAPI、Celery worker 和 Redis：
+
+```bash
+docker compose up --build
+```
+
+启动后访问：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+详细说明见 [docs/docker_compose.md](docs/docker_compose.md)。
+
+## 13. 可选集成测试
 
 ```bash
 RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_integration.py -v
@@ -308,7 +330,7 @@ RUN_CELERY_INTEGRATION=1 .venv/bin/python -m pytest tests/test_celery_redis_inte
 - 只有 Redis 和 Celery worker 已启动时才运行。
 - 该测试只验证 `ping_task`，不调用 LLM。
 
-## 13. 环境变量
+## 14. 环境变量
 
 ```text
 INTERVIEWACE_DB_PATH
@@ -322,7 +344,7 @@ DEEPSEEK_API_KEY
 - `CELERY_RESULT_BACKEND` 默认 `redis://localhost:6379/1`。
 - `DEEPSEEK_API_KEY` 用于 `core/analyzer.py` 中的 DeepSeek / OpenAI-compatible LLM 调用。
 
-## 14. 测试策略
+## 15. 测试策略
 
 - 默认测试不依赖 Redis。
 - 默认测试不调用真实 LLM。
@@ -330,23 +352,22 @@ DEEPSEEK_API_KEY
 - Celery `delay` / `AsyncResult` 在单元测试中使用 monkeypatch。
 - 真实 Redis + worker 只用于可选集成验收。
 
-## 15. 当前限制
+## 16. 当前限制
 
 - 当前知识库检索以 keyword / FTS 为主，尚未接入 embedding retriever。
+- 当前已具备 `chunk_embeddings` 存储结构，但尚未接真实 embedding API 或向量检索链路。
 - 当前没有实现模型微调。
 - 当前 Structured Output 先支持 preparation plan，其他复盘报告仍以 Markdown 为主。
-- 当前结构化准备计划只提供同步 API，尚未提供 Celery 异步 structured task。
-- 当前异步任务结果主要依赖 Redis result backend，尚未落库持久化。
+- 当前 Celery 执行仍依赖 Redis broker / result backend；`task_records` 是 SQLite 本地持久化审计表，不是分布式任务库。
 - 当前未实现任务取消 / revoke。
 - 当前 SQLite 更适合本地和 MVP，生产环境可迁移到 MySQL / PostgreSQL。
 - `preparation.generate_plan` 异步任务会调用真实 LLM，需要 API key、网络和代理配置正常。
 
-## 16. Roadmap
+## 17. Roadmap
 
 - README 配套截图或接口示例图。
 - Structured preparation plan 异步任务接口。
-- Docker Compose 编排 API / worker / redis。
-- `task_records` 表，持久化任务状态和结果。
+- task_records 清理策略和任务历史 UI。
 - MySQL / PostgreSQL 数据库迁移。
 - Embedding retriever + rerank。
 - 更完整的 RAG citations。
@@ -355,7 +376,7 @@ DEEPSEEK_API_KEY
 - Prompt evaluation golden cases 增强。
 - 将 Structured Output 扩展到 full-context analysis、summary 和 scoring。
 
-## 17. 项目协作指南
+## 18. 项目协作指南
 
 AI coding agent 开发规范见：
 

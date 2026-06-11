@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from worker.tasks import run_generate_preparation_plan_task, run_ping_task
+from worker.task_records import create_task_record, get_task_record
+from worker.tasks import (
+    generate_preparation_plan_task,
+    ping_task,
+    run_generate_preparation_plan_task,
+    run_generate_structured_preparation_plan_task,
+    run_ping_task,
+)
 
 
 def test_run_ping_task() -> None:
@@ -77,3 +84,74 @@ def test_run_generate_preparation_plan_task_propagates_error(monkeypatch) -> Non
 
     with pytest.raises(RuntimeError, match="LLM failed"):
         run_generate_preparation_plan_task(_payload())
+
+
+def test_run_generate_structured_preparation_plan_task_returns_dict(monkeypatch) -> None:
+    class FakePlan:
+        def model_dump(self):
+            return {"summary": "structured summary"}
+
+    class FakeResult:
+        user_goal = "准备面试"
+        job_direction = "大模型应用工程师"
+        query = "Agent"
+        structured_plan = FakePlan()
+        raw_output = '{"summary":"structured summary"}'
+        evidence_context = "[E1]\n证据内容"
+        used_evidence_count = 1
+        prompt = None
+
+    def fake_generate_structured_preparation_plan(**kwargs):
+        return FakeResult()
+
+    monkeypatch.setattr(
+        "worker.tasks.generate_structured_preparation_plan",
+        fake_generate_structured_preparation_plan,
+    )
+
+    result = run_generate_structured_preparation_plan_task(_payload())
+
+    assert result["structured_plan"]["summary"] == "structured summary"
+    assert result["raw_output"] == '{"summary":"structured summary"}'
+    assert result["used_evidence_count"] == 1
+
+
+def test_worker_task_success_writes_task_record(tmp_path) -> None:
+    db_path = str(tmp_path / "tasks.db")
+    task_id = "ping-success"
+    create_task_record(db_path, task_id, "system.ping", {"source": "api"})
+
+    result = ping_task.apply(
+        args=[{"source": "api", "db_path": db_path}],
+        task_id=task_id,
+    )
+    record = get_task_record(db_path, task_id)
+
+    assert result.successful()
+    assert record["status"] == "SUCCESS"
+    assert record["started_at"]
+    assert record["finished_at"]
+    assert record["result"]["status"] == "ok"
+
+
+def test_worker_task_failure_writes_task_record_and_reraises(tmp_path, monkeypatch) -> None:
+    db_path = str(tmp_path / "tasks.db")
+    task_id = "plan-failure"
+    payload = _payload()
+    payload["db_path"] = db_path
+    create_task_record(db_path, task_id, "preparation.generate_plan", payload)
+
+    def fail_generate_preparation_plan(db_path, request, include_prompt=False):
+        raise RuntimeError("LLM failed")
+
+    monkeypatch.setattr("worker.tasks.generate_preparation_plan", fail_generate_preparation_plan)
+
+    result = generate_preparation_plan_task.apply(args=[payload], task_id=task_id)
+    record = get_task_record(db_path, task_id)
+
+    assert result.failed()
+    with pytest.raises(RuntimeError, match="LLM failed"):
+        result.get(propagate=True)
+    assert record["status"] == "FAILURE"
+    assert record["error_message"] == "LLM failed"
+    assert record["finished_at"]

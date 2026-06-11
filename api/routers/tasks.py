@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import uuid
+
 from celery.result import AsyncResult
 from fastapi import APIRouter
 
+from api.deps import get_db_path
 from api.schemas import TaskStatusResponse, TaskSubmitResponse
 from worker.celery_app import celery_app
-from worker.tasks import ping_task
+from worker.task_records import create_task_record, get_task_record
+from worker.tasks import TASK_SYSTEM_PING, ping_task
 
 
 router = APIRouter()
@@ -16,7 +20,16 @@ router = APIRouter()
 @router.post("/tasks/ping", response_model=TaskSubmitResponse, status_code=202)
 def submit_ping_task() -> TaskSubmitResponse:
     """Submit a lightweight Celery ping task."""
-    async_result = ping_task.delay({"source": "api"})
+    db_path = get_db_path()
+    task_id = uuid.uuid4().hex
+    payload = {"source": "api", "db_path": db_path}
+    create_task_record(
+        db_path=db_path,
+        task_id=task_id,
+        task_name=TASK_SYSTEM_PING,
+        request=payload,
+    )
+    async_result = ping_task.apply_async(args=[payload], task_id=task_id)
     return TaskSubmitResponse(
         task_id=async_result.id,
         status="PENDING",
@@ -39,6 +52,7 @@ def get_task_status(task_id: str) -> TaskStatusResponse:
     elif ready:
         error = str(async_result.result)
 
+    task_record = get_task_record(get_db_path(), task_id)
     return TaskStatusResponse(
         task_id=task_id,
         status=status,
@@ -46,4 +60,5 @@ def get_task_status(task_id: str) -> TaskStatusResponse:
         successful=successful,
         result=result,
         error=error,
+        task_record=task_record,
     )

@@ -115,3 +115,4 @@ class TaskStatusResponse(BaseModel):
     successful: bool
     result: dict[str, Any] | None = None
     error: str | None = None
+    task_record: dict[str, Any] | None = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter
 
 from api.deps import get_db_path
@@ -15,7 +17,13 @@ from api.schemas import (
 from preparation.schemas import PreparationPlanRequest
 from preparation.service import generate_preparation_plan
 from preparation.structured_service import generate_structured_preparation_plan
-from worker.tasks import generate_preparation_plan_task
+from worker.task_records import create_task_record
+from worker.tasks import (
+    TASK_PREPARATION_GENERATE_PLAN,
+    TASK_PREPARATION_GENERATE_STRUCTURED_PLAN,
+    generate_preparation_plan_task,
+    generate_structured_preparation_plan_task,
+)
 
 
 router = APIRouter()
@@ -87,8 +95,10 @@ def create_structured_preparation_plan(
 @router.post("/plan-tasks", response_model=TaskSubmitResponse, status_code=202)
 def submit_preparation_plan_task(request: PreparationPlanApiRequest) -> TaskSubmitResponse:
     """Submit an asynchronous preparation plan task."""
+    db_path = get_db_path()
+    task_id = uuid.uuid4().hex
     payload = {
-        "db_path": get_db_path(),
+        "db_path": db_path,
         "user_goal": request.user_goal,
         "job_direction": request.job_direction,
         "query": request.query,
@@ -98,9 +108,50 @@ def submit_preparation_plan_task(request: PreparationPlanApiRequest) -> TaskSubm
         "top_k": request.top_k,
         "include_prompt": request.include_prompt,
     }
-    async_result = generate_preparation_plan_task.delay(payload)
+    create_task_record(
+        db_path=db_path,
+        task_id=task_id,
+        task_name=TASK_PREPARATION_GENERATE_PLAN,
+        request=payload,
+    )
+    async_result = generate_preparation_plan_task.apply_async(args=[payload], task_id=task_id)
     return TaskSubmitResponse(
         task_id=async_result.id,
         status="PENDING",
         message="Preparation plan task submitted.",
+    )
+
+
+@router.post("/structured-plan-tasks", response_model=TaskSubmitResponse, status_code=202)
+def submit_structured_preparation_plan_task(
+    request: StructuredPreparationPlanApiRequest,
+) -> TaskSubmitResponse:
+    """Submit an asynchronous structured preparation plan task."""
+    db_path = get_db_path()
+    task_id = uuid.uuid4().hex
+    payload = {
+        "db_path": db_path,
+        "user_goal": request.user_goal,
+        "job_direction": request.job_direction,
+        "query": request.query,
+        "plan_days": request.plan_days,
+        "daily_minutes": request.daily_minutes,
+        "max_tasks_per_day": request.max_tasks_per_day,
+        "top_k": request.top_k,
+        "include_prompt": request.include_prompt,
+    }
+    create_task_record(
+        db_path=db_path,
+        task_id=task_id,
+        task_name=TASK_PREPARATION_GENERATE_STRUCTURED_PLAN,
+        request=payload,
+    )
+    async_result = generate_structured_preparation_plan_task.apply_async(
+        args=[payload],
+        task_id=task_id,
+    )
+    return TaskSubmitResponse(
+        task_id=async_result.id,
+        status="PENDING",
+        message="Structured preparation plan task submitted.",
     )
