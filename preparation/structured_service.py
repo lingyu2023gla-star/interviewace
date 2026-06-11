@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from core.analyzer import generate_text
 from knowledge.context_builder import build_evidence_context
 from knowledge.retrievers import get_retriever
+from preparation.evidence_validator import (
+    evidence_validation_result_to_dict,
+    validate_structured_plan_evidence_refs,
+)
 from preparation.structured_parser import parse_structured_preparation_plan
 from preparation.structured_schemas import StructuredPreparationPlan
 from prompts.structured_preparation_plan import build_structured_preparation_plan_prompt
@@ -56,6 +60,8 @@ def generate_structured_preparation_plan(
     max_tasks_per_day: int = 3,
     top_k: int = 5,
     retriever_type: str = "keyword",
+    validate_evidence_refs: bool = True,
+    strict_evidence_validation: bool = False,
     include_prompt: bool = False,
 ) -> StructuredPreparationPlanResult:
     """Generate and validate a structured JSON preparation plan."""
@@ -80,6 +86,16 @@ def generate_structured_preparation_plan(
     )
     raw_output = generate_text(prompt)
     structured_plan = parse_structured_preparation_plan(raw_output)
+    if validate_evidence_refs:
+        validation_result = validate_structured_plan_evidence_refs(
+            structured_plan=structured_plan,
+            evidence_context=evidence_context,
+        )
+        metadata = dict(structured_plan.metadata or {})
+        metadata["evidence_validation"] = evidence_validation_result_to_dict(validation_result)
+        structured_plan.metadata = metadata
+        if strict_evidence_validation and not validation_result.is_valid:
+            raise ValueError("Structured preparation plan failed evidence validation.")
 
     return StructuredPreparationPlanResult(
         user_goal=clean_goal,

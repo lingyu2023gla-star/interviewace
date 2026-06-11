@@ -233,3 +233,34 @@ def test_structured_preparation_plan_supports_pydantic_v1_dict(monkeypatch) -> N
 
     assert response.status_code == 200
     assert response.json()["structured_plan"]["summary"] == "v1 summary"
+
+
+def test_structured_preparation_plan_returns_evidence_validation_metadata(monkeypatch) -> None:
+    class FakeStructuredPlanWithValidation(FakeStructuredPlan):
+        def model_dump(self) -> dict:
+            data = super().model_dump()
+            data["metadata"]["evidence_validation"] = {
+                "is_valid": True,
+                "valid_evidence_ids": ["E1"],
+                "used_evidence_refs": ["E1"],
+                "issues": [],
+            }
+            return data
+
+    class FakeResultWithValidation(FakeResult):
+        structured_plan = FakeStructuredPlanWithValidation()
+
+    monkeypatch.setattr(
+        "api.routers.preparation.generate_structured_preparation_plan",
+        lambda **kwargs: FakeResultWithValidation(),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/preparation/structured-plan",
+        json={"user_goal": "准备 Agent/RAG 应用工程师面试"},
+    )
+
+    metadata = response.json()["structured_plan"]["metadata"]
+    assert response.status_code == 200
+    assert metadata["evidence_validation"]["is_valid"] is True

@@ -19,7 +19,7 @@ InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文
 - 历史面试记录保存，沉淀 sessions / turns / questions。
 - 面试知识库 `knowledge_chunks`，支持可追溯、幂等写入。
 - keyword / SQLite FTS 检索，并在 FTS 不可用时降级到 LIKE 检索。
-- Evidence Context 构建，使用 `[E1]` / `[E2]` 证据编号约束后续判断。
+- Evidence Context 构建，使用 `[E1]` / `[E2]` 证据编号约束后续判断，并通过 Evidence Ref Validator 校验结构化输出引用，详见 [docs/evidence_validation.md](docs/evidence_validation.md)。
 - 基于历史证据生成面试准备计划，支持 Markdown 阅读版和结构化 JSON 版。
 - Structured Output / JSON Schema 第一阶段：Preparation Plan 结构化 schema、parser、service 和同步 API。
 - FastAPI 接口服务，暴露检索、证据上下文和准备计划能力。

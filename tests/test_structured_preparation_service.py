@@ -29,16 +29,21 @@ def _seed_evidence(db_path: str) -> None:
     )
 
 
-def _valid_llm_json(plan_days: int = 2, insufficient: bool = False) -> str:
+def _valid_llm_json(
+    plan_days: int = 2,
+    insufficient: bool = False,
+    evidence_refs: list[str] | None = None,
+) -> str:
     """Return legal structured JSON for mocked LLM output."""
     summary = "历史证据不足，需要先导入复盘记录。" if insufficient else "基于历史证据准备 Agent 架构。"
+    refs = [] if insufficient else (evidence_refs or ["E1"])
     data = {
         "summary": summary,
         "evidence_based_judgments": [
             {
                 "type": "insufficient_evidence" if insufficient else "strength",
                 "content": "历史证据不足" if insufficient else "候选人讲到了 Orchestrator 和 ToolResult。",
-                "evidence_refs": [] if insufficient else ["E1"],
+                "evidence_refs": refs,
             }
         ],
         "daily_plan": [
@@ -50,7 +55,7 @@ def _valid_llm_json(plan_days: int = 2, insufficient: bool = False) -> str:
                         "task": "整理 Agent 架构回答" if not insufficient else "准备通用项目介绍",
                         "estimated_minutes": 30,
                         "output": "回答模板",
-                        "evidence_refs": [] if insufficient else ["E1"],
+                        "evidence_refs": refs,
                     }
                 ],
             }
@@ -62,7 +67,7 @@ def _valid_llm_json(plan_days: int = 2, insufficient: bool = False) -> str:
                 "answer_goal": "说清编排和工具调用",
                 "answer_structure": ["先给结论", "解释技术原因", "结合项目证据"],
                 "sample_answer": "我会先介绍 Orchestrator，再说明 ToolResult。",
-                "evidence_refs": [] if insufficient else ["E1"],
+                "evidence_refs": refs,
             },
             {
                 "question": "如何减少模型幻觉",
@@ -84,7 +89,7 @@ def _valid_llm_json(plan_days: int = 2, insufficient: bool = False) -> str:
             {
                 "risk": "不要把 RAG 规划说成已完整实现",
                 "reason": "历史证据不足" if insufficient else "证据中没有完整 RAG 落地说明",
-                "evidence_refs": [] if insufficient else ["E1"],
+                "evidence_refs": refs,
             }
         ],
         "metadata": {
@@ -125,6 +130,7 @@ def test_generate_structured_preparation_plan_with_evidence(tmp_path, monkeypatc
     assert "只输出 JSON" in result.prompt
     assert '"summary"' in result.raw_output
     assert len(result.structured_plan.daily_plan) == 2
+    assert result.structured_plan.metadata["evidence_validation"]["is_valid"] is True
 
 
 def test_generate_structured_preparation_plan_query_fallback(tmp_path, monkeypatch) -> None:
@@ -280,3 +286,46 @@ def test_generate_structured_preparation_plan_uses_opt_in_embedding_retriever(
     assert captured["retrieve_kwargs"]["query"] == "Agent"
     assert captured["retrieve_kwargs"]["top_k"] == 4
     assert result.used_evidence_count == 0
+
+
+def test_generate_structured_preparation_plan_records_evidence_validation_issue(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "structured.db")
+    _seed_evidence(db_path)
+    monkeypatch.setattr(
+        "preparation.structured_service.generate_text",
+        lambda prompt: _valid_llm_json(evidence_refs=["E9"]),
+    )
+
+    result = generate_structured_preparation_plan(
+        db_path=db_path,
+        user_goal="准备 Agent/RAG 应用工程师面试",
+        query="Agent",
+    )
+
+    validation = result.structured_plan.metadata["evidence_validation"]
+    assert validation["is_valid"] is False
+    assert validation["issues"][0]["code"] == "unknown_evidence_ref"
+
+
+def test_generate_structured_preparation_plan_validation_issue_is_non_blocking(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "structured.db")
+    _seed_evidence(db_path)
+    monkeypatch.setattr(
+        "preparation.structured_service.generate_text",
+        lambda prompt: _valid_llm_json(evidence_refs=["E9"]),
+    )
+
+    result = generate_structured_preparation_plan(
+        db_path=db_path,
+        user_goal="准备 Agent/RAG 应用工程师面试",
+        query="Agent",
+    )
+
+    assert result.structured_plan.summary
+    assert result.structured_plan.metadata["evidence_validation"]["is_valid"] is False
