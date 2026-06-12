@@ -1,6 +1,6 @@
 # Skill Layer
 
-V10 starts the InterviewAce Skill Layer. V10.1 only defines the common skill specification and registry. It does not implement any business skill yet.
+V10 starts the InterviewAce Skill Layer. V10.1 defined the common skill specification and registry. V10.2 adds the first business skill: `InterviewPreparationSkill`.
 
 ## 1. Purpose
 
@@ -15,22 +15,30 @@ Unlike a normal service function, a skill has a discoverable `SkillSpec`, accept
 
 ## 2. Current Scope
 
-V10.1 includes:
+The Skill Layer includes:
 
 - `SkillRequest`
 - `SkillResult`
 - `SkillSpec`
 - `BaseSkill`
 - `SkillRegistry`
+- `InterviewPreparationSkill`
 
-V10.1 does not:
+The current layer does not:
 
-- call LLMs;
+- add FastAPI skill routes;
+- add Celery skill tasks;
+- write `skill_runs`;
+- implement a Skill Router.
+
+`InterviewPreparationSkill` calls the existing structured preparation service, so production execution may call the configured LLM through that service. Tests monkeypatch the service and do not call a real LLM.
+
+V10.2 does not:
+
 - call embedding APIs;
-- add FastAPI routes;
-- add Celery tasks;
 - write database tables;
-- implement business skills.
+- implement `ProjectPitchSkill`;
+- implement `MockInterviewQuestionSkill`.
 
 ## 3. Files
 
@@ -38,6 +46,7 @@ V10.1 does not:
 skills/
 ├── __init__.py
 ├── base.py
+├── interview_preparation.py
 ├── registry.py
 └── schemas.py
 ```
@@ -126,19 +135,55 @@ Behavior:
 - `list_names()` and `list_specs()` are sorted by name for stable tests;
 - registry does not execute skills automatically.
 
-## 9. Testing
+`create_default_skill_registry()` returns a new registry containing currently implemented business skills:
+
+- `interview_preparation`
+
+This helper is not a global mutable singleton.
+
+## 9. Current Skill: InterviewPreparationSkill
+
+`InterviewPreparationSkill` wraps the existing structured preparation service.
+
+```text
+SkillRequest
+  -> InterviewPreparationSkill
+  -> structured preparation service
+  -> SkillResult
+```
+
+Spec summary:
+
+| Field | Value |
+| --- | --- |
+| `name` | `interview_preparation` |
+| `requires_evidence` | `true` |
+| `supports_async` | `false` |
+| `supported_retriever_types` | `keyword`, `fts`, `embedding`, `hybrid` |
+| `tags` | `interview`, `preparation`, `rag`, `structured-output` |
+
+The skill reuses:
+
+- retriever selection via `retriever_type`;
+- Evidence Context generation;
+- structured preparation plan output;
+- evidence reference validation metadata.
+
+Details: [interview_preparation_skill.md](interview_preparation_skill.md)
+
+## 10. Testing
 
 ```bash
 .venv/bin/python -m pytest tests/test_skills_registry.py -v
+.venv/bin/python -m pytest tests/test_interview_preparation_skill.py -v
 ```
 
-Tests use only local dummy skills and do not require Redis, Docker, Celery worker, network, real LLM calls, or embedding APIs.
+Tests use local dummy skills or monkeypatched services and do not require Redis, Docker, Celery worker, network, real LLM calls, or embedding APIs.
 
-## 10. Roadmap
+## 11. Roadmap
 
 Planned V10 work:
 
-- V10.2: `InterviewPreparationSkill`
 - V10.3: Skill API / async task integration
 - V10.4: Skill result persistence
 - V10.5: Skill evaluation

@@ -25,7 +25,7 @@ InterviewAce 是一个 AI 面试复盘与准备系统，支持从面试转写文
 - FastAPI 接口服务，暴露检索、证据上下文和准备计划能力。
 - Redis / Celery 异步任务接口，支持任务提交、状态查询和本地 ping 验收。
 - SQLite `task_records` 持久化异步任务请求、状态、结果和失败原因。
-- V10 Skill Layer 底座已新增 Skill Spec / Registry，详见 [docs/skills.md](docs/skills.md)。
+- V10 Skill Layer 已新增 Skill Spec / Registry 和 `InterviewPreparationSkill`，详见 [docs/skills.md](docs/skills.md) 与 [docs/interview_preparation_skill.md](docs/interview_preparation_skill.md)。
 - 本地可选 Redis + Celery worker 集成验收。
 
 当前没有实现向量数据库、rerank 或模型微调；知识库检索默认仍以 keyword / FTS 为主。V9.1 已新增 retriever 抽象层，详见 [docs/retrievers.md](docs/retrievers.md)；V9.2 已新增 SQLite embedding store，详见 [docs/embedding_store.md](docs/embedding_store.md)；V9.3 已新增本地可测试的 EmbeddingRetriever，详见 [docs/embedding_retriever.md](docs/embedding_retriever.md)；V9.4 已新增 RRF HybridRetriever，详见 [docs/hybrid_retriever.md](docs/hybrid_retriever.md)；V9.5 已支持通过 `retriever_type` opt-in 选择 keyword / fts / embedding / hybrid，默认仍为 keyword。
