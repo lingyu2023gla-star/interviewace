@@ -1,6 +1,6 @@
 # Skill Layer
 
-V10 starts the InterviewAce Skill Layer. V10.1 defined the common skill specification and registry. V10.2 adds the first business skill: `InterviewPreparationSkill`.
+V10 starts the InterviewAce Skill Layer. V10.1 defined the common skill specification and registry. V10.2 added the first business skill: `InterviewPreparationSkill`. V10.3 exposes skills through FastAPI and Celery-backed async tasks.
 
 ## 1. Purpose
 
@@ -26,8 +26,6 @@ The Skill Layer includes:
 
 The current layer does not:
 
-- add FastAPI skill routes;
-- add Celery skill tasks;
 - write `skill_runs`;
 - implement a Skill Router.
 
@@ -138,6 +136,7 @@ Behavior:
 `create_default_skill_registry()` returns a new registry containing currently implemented business skills:
 
 - `interview_preparation`
+- `project_pitch`
 
 This helper is not a global mutable singleton.
 
@@ -158,7 +157,7 @@ Spec summary:
 | --- | --- |
 | `name` | `interview_preparation` |
 | `requires_evidence` | `true` |
-| `supports_async` | `false` |
+| `supports_async` | `true` |
 | `supported_retriever_types` | `keyword`, `fts`, `embedding`, `hybrid` |
 | `tags` | `interview`, `preparation`, `rag`, `structured-output` |
 
@@ -171,19 +170,102 @@ The skill reuses:
 
 Details: [interview_preparation_skill.md](interview_preparation_skill.md)
 
-## 10. Testing
+## 10. Current Skill: ProjectPitchSkill
+
+`ProjectPitchSkill` uses the existing retriever layer and Evidence Context builder to generate an evidence-based project pitch for interviews.
+
+```text
+SkillRequest
+  -> ProjectPitchSkill
+  -> get_retriever(retriever_type)
+  -> build_evidence_context
+  -> generate_text
+  -> evidence ref validation
+  -> SkillResult
+```
+
+Spec summary:
+
+| Field | Value |
+| --- | --- |
+| `name` | `project_pitch` |
+| `requires_evidence` | `true` |
+| `supports_async` | `true` |
+| `supported_retriever_types` | `keyword`, `fts`, `embedding`, `hybrid` |
+| `tags` | `interview`, `project`, `pitch`, `rag` |
+
+The skill reuses:
+
+- retriever selection via `retriever_type`;
+- Evidence Context generation;
+- existing LLM text generation wrapper;
+- evidence reference validation.
+
+It does not introduce a new API route or Celery task; it is called through the generic Skill API.
+
+Details: [project_pitch_skill.md](project_pitch_skill.md)
+
+## 11. Skill API / Async Task
+
+V10.3 adds:
+
+- `GET /api/skills`
+- `GET /api/skills/{skill_name}`
+- `POST /api/skills/{skill_name}/run`
+- `POST /api/skills/{skill_name}/tasks`
+- Celery task `skills.run_skill`
+
+Async skill tasks reuse existing `task_records` and are queried through `GET /api/tasks/{task_id}`.
+
+Details: [skill_api.md](skill_api.md)
+
+## 12. Skill Evaluation
+
+V10.5 adds a lightweight Skill Evaluation layer for checking `SkillResult` structure and evidence validation metadata.
+
+It supports:
+
+- required output key checks;
+- required metadata key checks;
+- `success` / `error_message` checks;
+- `evidence_validation` presence checks;
+- `evidence_validation.is_valid` checks;
+- running one or more eval cases through a `SkillRegistry`.
+
+It does not call LLMs, embedding APIs, Redis, Celery, or databases by itself.
+
+Details: [skill_evaluation.md](skill_evaluation.md)
+
+## 13. Rule-based Skill Router
+
+V10.6 adds a deterministic router for selecting a registered Skill from user intent.
+
+It supports:
+
+- explicit `skill_name` priority;
+- rule-based matching on skill name, tags, description, and predefined keywords;
+- candidate scores and a readable routing reason.
+
+It does not call LLMs and does not execute `skill.run()`.
+
+Details: [skill_router.md](skill_router.md)
+
+## 14. Testing
 
 ```bash
 .venv/bin/python -m pytest tests/test_skills_registry.py -v
 .venv/bin/python -m pytest tests/test_interview_preparation_skill.py -v
+.venv/bin/python -m pytest tests/test_project_pitch_skill.py -v
+.venv/bin/python -m pytest tests/test_skill_evaluation.py -v
+.venv/bin/python -m pytest tests/test_skill_router.py -v
+.venv/bin/python -m pytest tests/test_api_skills.py tests/test_skill_tasks.py -v
 ```
 
 Tests use local dummy skills or monkeypatched services and do not require Redis, Docker, Celery worker, network, real LLM calls, or embedding APIs.
 
-## 11. Roadmap
+## 15. Roadmap
 
 Planned V10 work:
 
-- V10.3: Skill API / async task integration
-- V10.4: Skill result persistence
-- V10.5: Skill evaluation
+- Skill result persistence
+- richer RAG Eval and claim verification

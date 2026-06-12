@@ -70,7 +70,7 @@ def test_interview_preparation_skill_spec() -> None:
     assert spec.description == "Generate an evidence-based structured interview preparation plan."
     assert set(spec.supported_retriever_types) == {"keyword", "fts", "embedding", "hybrid"}
     assert spec.requires_evidence is True
-    assert spec.supports_async is False
+    assert spec.supports_async is True
     assert "structured-output" in spec.tags
     assert "user_goal" in spec.input_schema
     assert "structured_plan" in spec.output_schema

@@ -44,7 +44,7 @@ class InterviewPreparationSkill(BaseSkill):
             },
             supported_retriever_types=("keyword", "fts", "embedding", "hybrid"),
             requires_evidence=True,
-            supports_async=False,
+            supports_async=True,
             tags=("interview", "preparation", "rag", "structured-output"),
         )
 
@@ -106,6 +106,9 @@ class InterviewPreparationSkill(BaseSkill):
 
 def create_default_skill_registry() -> SkillRegistry:
     """Create a registry containing the currently implemented business skills."""
+    from skills.project_pitch import ProjectPitchSkill
+
     registry = SkillRegistry()
     registry.register(InterviewPreparationSkill())
+    registry.register(ProjectPitchSkill())
     return registry

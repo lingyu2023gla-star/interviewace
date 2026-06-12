@@ -9,6 +9,7 @@ from preparation.schemas import PreparationPlanRequest
 from preparation.service import generate_preparation_plan
 from preparation.structured_parser import structured_plan_to_dict
 from preparation.structured_service import generate_structured_preparation_plan
+from skills import SkillRequest, SkillResult, create_default_skill_registry
 from worker.celery_app import celery_app
 from worker.task_records import mark_task_failure, mark_task_started, mark_task_success
 
@@ -16,12 +17,15 @@ from worker.task_records import mark_task_failure, mark_task_started, mark_task_
 TASK_SYSTEM_PING = "system.ping"
 TASK_PREPARATION_GENERATE_PLAN = "preparation.generate_plan"
 TASK_PREPARATION_GENERATE_STRUCTURED_PLAN = "preparation.generate_structured_plan"
+TASK_SKILLS_RUN_SKILL = "skills.run_skill"
 
 
 def _task_db_path(payload: dict | None = None) -> str:
     """Return DB path for task record updates."""
     if payload and payload.get("db_path"):
         return payload["db_path"]
+    if payload and isinstance(payload.get("context"), dict) and payload["context"].get("db_path"):
+        return payload["context"]["db_path"]
     return os.getenv("INTERVIEWACE_DB_PATH", "data/interviews.db")
 
 
@@ -82,6 +86,17 @@ def run_ping_task(payload: dict | None = None) -> dict:
         "status": "ok",
         "message": "pong",
         "payload": payload,
+    }
+
+
+def skill_result_to_dict(result: SkillResult) -> dict:
+    """Convert SkillResult to a JSON-compatible dict."""
+    return {
+        "skill_name": result.skill_name,
+        "success": result.success,
+        "output": result.output,
+        "metadata": result.metadata,
+        "error_message": result.error_message,
     }
 
 
@@ -176,4 +191,34 @@ def generate_structured_preparation_plan_task(self, payload: dict) -> dict:
         self,
         payload,
         lambda: run_generate_structured_preparation_plan_task(payload),
+    )
+
+
+def run_skill_task(payload: dict) -> dict:
+    """Run a registered skill from a JSON-serializable payload."""
+    skill_name = payload.get("skill_name")
+    if not skill_name:
+        raise ValueError("skill_name is required")
+
+    inputs = payload.get("inputs") or {}
+    context = payload.get("context") or {}
+    metadata = payload.get("metadata") or {}
+    registry = create_default_skill_registry()
+    skill = registry.get(skill_name)
+    request = SkillRequest(
+        skill_name=skill_name,
+        inputs=inputs,
+        context=context,
+        metadata=metadata,
+    )
+    return skill_result_to_dict(skill.run(request))
+
+
+@celery_app.task(name=TASK_SKILLS_RUN_SKILL, bind=True)
+def run_skill_task_celery(self, payload: dict) -> dict:
+    """Celery wrapper for registered skill execution."""
+    return _run_tracked_task(
+        self,
+        payload,
+        lambda: run_skill_task(payload),
     )

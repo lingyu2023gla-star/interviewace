@@ -35,7 +35,7 @@ name: interview_preparation
 description: Generate an evidence-based structured interview preparation plan.
 supported_retriever_types: keyword / fts / embedding / hybrid
 requires_evidence: true
-supports_async: false
+supports_async: true
 tags: interview / preparation / rag / structured-output
 ```
 
@@ -83,10 +83,8 @@ tags: interview / preparation / rag / structured-output
 
 ## 6. Current Scope
 
-V10.2 intentionally does not:
+V10.2 / V10.3 intentionally do not:
 
-- add FastAPI routes;
-- add Celery tasks;
 - add a Skill Router;
 - write `skill_runs`;
 - call a real LLM in tests;
@@ -109,6 +107,17 @@ It is not a global mutable singleton and does not execute the skill at import ti
 
 Tests monkeypatch the structured preparation service and do not require network, Redis, Docker, Celery worker, real LLM calls, or a real embedding API.
 
-## 9. Next Step
+## 9. API And Async Task
 
-V10.3 can expose skills through an API or async task layer while continuing to reuse the existing `SkillRegistry`.
+V10.3 exposes this skill through:
+
+- `POST /api/skills/interview_preparation/run`
+- `POST /api/skills/interview_preparation/tasks`
+
+The async task uses Celery task `skills.run_skill` and persists state through existing `task_records`.
+
+Details: [skill_api.md](skill_api.md)
+
+## 10. Next Step
+
+V10.4 can add skill result persistence without changing the skill interface.

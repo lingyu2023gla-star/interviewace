@@ -120,3 +120,38 @@ class TaskStatusResponse(BaseModel):
     result: dict[str, Any] | None = None
     error: str | None = None
     task_record: dict[str, Any] | None = None
+
+
+class SkillRunRequest(BaseModel):
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillRunResponse(BaseModel):
+    skill_name: str
+    success: bool
+    output: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
+
+
+class SkillTaskCreateResponse(BaseModel):
+    task_id: str
+    skill_name: str
+    status: str = "PENDING"
+
+
+class SkillSpecResponse(BaseModel):
+    name: str
+    description: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    supported_retriever_types: list[str]
+    requires_evidence: bool
+    supports_async: bool
+    tags: list[str] = Field(default_factory=list)
+
+
+class SkillListResponse(BaseModel):
+    skills: list[SkillSpecResponse]
